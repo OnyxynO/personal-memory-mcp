@@ -1,0 +1,5 @@
+[
+  {
+    "conversations_memory": "**Work context**\n- Développeur Python avec 10 ans d'expérience, spécialisé en data engineering\n- Utilise principalement FastAPI et SQLite pour les projets backend\n- Travaille sur des outils de traitement de données cliniques\n\n**Top of mind**\n- En cours de migration d'une architecture Tauri vers PyWebView\n- Exploration des modèles d'embeddings locaux avec Ollama\n\n**Personal context**\n- Préfère les solutions locales sans dépendance cloud\n- Utilise macOS avec Apple Silicon (M-series)"
+  }
+]

@@ -98,29 +98,34 @@ class ImporteurClaudeCode(ImporteurBase):
         storage = self._service._storage
 
         for fichier in fichiers:
-            conv = _construire_conversation(fichier)
-            if conv is None:
+            try:
+                conv = _construire_conversation(fichier)
+                if conv is None:
+                    continue
+
+                faits = extracteur.extraire(conv)
+                if not faits:
+                    continue
+
+                contenus = [f.contenu for f in faits]
+                embeddings = extracteur.embeddings(contenus)
+
+                for fait, embedding in zip(faits, embeddings):
+                    if est_doublon(embedding, storage, self._service._seuil):
+                        resultat.dedupliques += 1
+                    else:
+                        storage.inserer_fait(
+                            contenu=fait.contenu,
+                            categorie=fait.categorie,
+                            source="claude-code",
+                            embedding=embedding,
+                            source_detail=str(fichier),
+                        )
+                        resultat.ajoutes += 1
+            except Exception as e:
+                resultat.nb_erreurs += 1
+                resultat.erreurs.append(f"{fichier.name} : {e}")
                 continue
-
-            faits = extracteur.extraire(conv)
-            if not faits:
-                continue
-
-            contenus = [f.contenu for f in faits]
-            embeddings = extracteur.embeddings(contenus)
-
-            for fait, embedding in zip(faits, embeddings):
-                if est_doublon(embedding, storage, self._service._seuil):
-                    resultat.dedupliques += 1
-                else:
-                    storage.inserer_fait(
-                        contenu=fait.contenu,
-                        categorie=fait.categorie,
-                        source="claude-code",
-                        embedding=embedding,
-                        source_detail=str(fichier),
-                    )
-                    resultat.ajoutes += 1
 
         resultat.duree = time.monotonic() - debut
         storage.enregistrer_import(

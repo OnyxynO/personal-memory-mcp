@@ -5,7 +5,6 @@ from typing import Annotated, Optional
 
 import typer
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
 app = typer.Typer(
@@ -69,52 +68,18 @@ def import_cmd(
         console.print(f"\nScan {racine} ... [bold]{len(fichiers)} sessions[/bold] trouvées\n")
 
         importeur = ImporteurClaudeCode(svc)
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("{task.completed}/{task.total}"),
-            TimeElapsedColumn(),
-            console=console,
-        ) as progress:
-            # Import avec suivi — on réutilise la logique en appelant directement
-            tache = progress.add_task("Extraction des faits", total=len(fichiers))
-            from personal_memory_mcp.importeurs.claude_code import _construire_conversation
-            from personal_memory_mcp.memory.deduplication import est_doublon
-            import time
+        with console.status("Extraction des faits en cours..."):
+            res = importeur.importer(chemin)
 
-            debut = time.monotonic()
-            ajoutes = dedupliques = 0
-            extracteur = svc._extracteur
-            storage = svc._storage
+        if "erreur" in res:
+            console.print(f"[red]Erreur : {res['erreur']}[/red]")
+            raise typer.Exit(1)
 
-            for fichier in fichiers:
-                conv = _construire_conversation(fichier)
-                if conv:
-                    faits = extracteur.extraire(conv)
-                    if faits:
-                        contenus = [f.contenu for f in faits]
-                        embeddings = extracteur.embeddings(contenus)
-                        for fait, emb in zip(faits, embeddings):
-                            if est_doublon(emb, storage, svc._seuil):
-                                dedupliques += 1
-                            else:
-                                storage.inserer_fait(
-                                    contenu=fait.contenu,
-                                    categorie=fait.categorie,
-                                    source="claude-code",
-                                    embedding=emb,
-                                    source_detail=str(fichier),
-                                )
-                                ajoutes += 1
-                progress.advance(tache)
-
-            duree = time.monotonic() - debut
-            storage.enregistrer_import("claude-code", str(racine), ajoutes, dedupliques, 0, duree)
-
-        console.print(f"  [green]+ {ajoutes} nouveaux faits[/green]")
-        console.print(f"  [dim]= {dedupliques} dédupliqués[/dim]")
-        console.print(f"  [bold]✓ Terminé en {duree:.0f}s[/bold]\n")
+        console.print(f"  [green]+ {res['ajoutes']} nouveaux faits[/green]")
+        console.print(f"  [dim]= {res['dedupliques']} dédupliqués[/dim]")
+        if res.get("nb_erreurs"):
+            console.print(f"  [yellow]! {res['nb_erreurs']} erreurs[/yellow]")
+        console.print(f"  [bold]✓ Terminé en {res['duree']}s[/bold]\n")
 
     elif source == "claude":
         if not chemin:
@@ -127,9 +92,6 @@ def import_cmd(
 
         console.print(f"\nLecture de l'export Claude : [bold]{chemin_zip.name}[/bold]")
         from personal_memory_mcp.importeurs.claude import ImporteurClaude
-        import time
-
-        debut = time.monotonic()
         importeur = ImporteurClaude(svc)
         with console.status("Import en cours..."):
             res = importeur.importer(str(chemin_zip))

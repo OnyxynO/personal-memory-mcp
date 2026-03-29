@@ -104,7 +104,13 @@ class ExtracteurOllama(ExtracteurBase):
             timeout=60.0,
         )
         reponse.raise_for_status()
-        return reponse.json()["embeddings"]
+        donnees = reponse.json()
+        embeddings = donnees.get("embeddings")
+        if not embeddings:
+            raise ValueError(
+                f"Réponse Ollama inattendue pour les embeddings : {donnees!r}"
+            )
+        return embeddings
 
     def verifier_disponibilite(self) -> dict[str, bool]:
         """Vérifie que les modèles requis sont disponibles."""

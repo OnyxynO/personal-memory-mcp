@@ -119,51 +119,60 @@ class ImporteurClaude(ImporteurBase):
 
             # 1. memories.json — sans LLM
             if "memories.json" in noms:
-                memories_data = json.loads(zf.read("memories.json"))
-                for entry in memories_data:
-                    markdown = entry.get("conversations_memory", "")
-                    if not markdown:
-                        continue
-                    faits_bruts = _extraire_faits_memories(markdown)
-                    if not faits_bruts:
-                        continue
-                    contenus = [f for f, _ in faits_bruts]
-                    embeddings = extracteur.embeddings(contenus)
-                    for (contenu, categorie), embedding in zip(faits_bruts, embeddings):
-                        if est_doublon(embedding, storage, self._service._seuil):
-                            resultat.dedupliques += 1
-                        else:
-                            storage.inserer_fait(
-                                contenu=contenu,
-                                categorie=categorie,
-                                source="claude",
-                                embedding=embedding,
-                                source_detail="memories.json",
-                            )
-                            resultat.ajoutes += 1
+                try:
+                    memories_data = json.loads(zf.read("memories.json"))
+                    for entry in memories_data:
+                        markdown = entry.get("conversations_memory", "")
+                        if not markdown:
+                            continue
+                        faits_bruts = _extraire_faits_memories(markdown)
+                        if not faits_bruts:
+                            continue
+                        contenus = [f for f, _ in faits_bruts]
+                        embeddings = extracteur.embeddings(contenus)
+                        for (contenu, categorie), embedding in zip(faits_bruts, embeddings):
+                            if est_doublon(embedding, storage, self._service._seuil):
+                                resultat.dedupliques += 1
+                            else:
+                                storage.inserer_fait(
+                                    contenu=contenu,
+                                    categorie=categorie,
+                                    source="claude",
+                                    embedding=embedding,
+                                    source_detail="memories.json",
+                                )
+                                resultat.ajoutes += 1
+                except Exception as e:
+                    resultat.nb_erreurs += 1
+                    resultat.erreurs.append(f"memories.json : {e}")
 
             # 2. conversations.json — avec LLM
             if "conversations.json" in noms:
                 convs_data = json.loads(zf.read("conversations.json"))
                 convs = _conversations_depuis_json(convs_data)
                 for conv in convs:
-                    faits = extracteur.extraire(conv)
-                    if not faits:
+                    try:
+                        faits = extracteur.extraire(conv)
+                        if not faits:
+                            continue
+                        contenus = [f.contenu for f in faits]
+                        embeddings = extracteur.embeddings(contenus)
+                        for fait, embedding in zip(faits, embeddings):
+                            if est_doublon(embedding, storage, self._service._seuil):
+                                resultat.dedupliques += 1
+                            else:
+                                storage.inserer_fait(
+                                    contenu=fait.contenu,
+                                    categorie=fait.categorie,
+                                    source="claude",
+                                    embedding=embedding,
+                                    source_detail=conv.source_detail,
+                                )
+                                resultat.ajoutes += 1
+                    except Exception as e:
+                        resultat.nb_erreurs += 1
+                        resultat.erreurs.append(f"conv {conv.source_detail} : {e}")
                         continue
-                    contenus = [f.contenu for f in faits]
-                    embeddings = extracteur.embeddings(contenus)
-                    for fait, embedding in zip(faits, embeddings):
-                        if est_doublon(embedding, storage, self._service._seuil):
-                            resultat.dedupliques += 1
-                        else:
-                            storage.inserer_fait(
-                                contenu=fait.contenu,
-                                categorie=fait.categorie,
-                                source="claude",
-                                embedding=embedding,
-                                source_detail=conv.source_detail,
-                            )
-                            resultat.ajoutes += 1
 
         resultat.duree = time.monotonic() - debut
         storage.enregistrer_import(

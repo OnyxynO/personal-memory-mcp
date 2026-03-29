@@ -1,0 +1,3 @@
+{"message": {"role": "user", "content": [{"type": "text", "text": "Je travaille sur un projet Python avec FastAPI et je veux implémenter une API REST pour gérer des utilisateurs dans une base SQLite"}]}, "timestamp": "2026-03-01T10:00:00Z"}
+{"message": {"role": "assistant", "content": [{"type": "text", "text": "Pour implémenter une API REST avec FastAPI et SQLite, je recommande d'utiliser SQLAlchemy comme ORM avec des modèles Pydantic pour la validation des données d'entrée"}]}, "timestamp": "2026-03-01T10:00:10Z"}
+{"message": {"role": "user", "content": [{"type": "text", "text": "Ok merci"}]}, "timestamp": "2026-03-01T10:00:20Z"}

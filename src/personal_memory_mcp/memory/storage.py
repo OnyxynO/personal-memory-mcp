@@ -168,6 +168,14 @@ class Storage:
             rows = self._conn.execute(sql, (limite,)).fetchall()
         return [dict(r) for r in rows]
 
+    def obtenir_par_id(self, id: int) -> dict[str, Any] | None:
+        """Retourne un fait par son id, ou None s'il n'existe pas."""
+        row = self._conn.execute(
+            "SELECT id, contenu, categorie, source, date_creation FROM faits WHERE id = ? AND actif = 1",
+            (id,),
+        ).fetchone()
+        return dict(row) if row else None
+
     def supprimer(self, id: int) -> bool:
         self._conn.execute("UPDATE faits SET actif = 0 WHERE id = ?", (id,))
         self._conn.commit()

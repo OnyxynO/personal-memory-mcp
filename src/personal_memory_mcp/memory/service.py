@@ -51,8 +51,7 @@ class MemoryService:
             # Trouver le fait existant le plus proche pour retourner son id
             voisins = self._storage.voisins_proches(embedding, top_k=1)
             id_existant = voisins[0][0] if voisins else -1
-            faits = self._storage.lister(limite=1000)
-            fait = next((f for f in faits if f["id"] == id_existant), None)
+            fait = self._storage.obtenir_par_id(id_existant) if id_existant != -1 else None
             return {
                 "id": id_existant,
                 "contenu": fait["contenu"] if fait else contenu,
