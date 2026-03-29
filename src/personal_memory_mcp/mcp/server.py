@@ -57,5 +57,61 @@ def delete(id: int) -> dict:
     return _get_service().delete(id)
 
 
+@mcp.tool()
+def import_conversations(
+    source: str,
+    chemin: str | None = None,
+    page: int = 1,
+    taille_page: int = 5,
+) -> dict:
+    """Retourne des conversations brutes paginées pour que l'IA les analyse.
+
+    L'IA doit appeler cet outil en boucle (page=1, 2, 3...) jusqu'à épuisement,
+    et pour chaque conversation décider quels faits mémoriser via add().
+
+    Workflow attendu :
+      1. Appeler import_conversations(source, page=1) → lire les conversations
+      2. Pour chaque fait durable détecté → appeler add(contenu, categorie)
+      3. Appeler import_conversations(source, page=2) → continuer
+      4. Répéter jusqu'à ce que page > total_pages
+
+    Catégories disponibles pour add() :
+      stack | projet | preference | decision | contrainte | contexte | autre
+
+    Args:
+        source:      "claude-code" (sessions ~/.claude) ou "claude" (ZIP export)
+        chemin:      Chemin vers le fichier ZIP (requis si source="claude")
+        page:        Numéro de page, commence à 1
+        taille_page: Nombre de conversations par page (défaut 5, max conseillé 10)
+
+    Returns:
+        {
+          "conversations": [{"source_detail": str, "texte": str}, ...],
+          "page": int,
+          "total_pages": int,
+          "total_conversations": int
+        }
+    """
+    from personal_memory_mcp.importeurs.lecteur import (
+        lire_claude_code,
+        lire_claude_zip,
+        paginer,
+    )
+
+    if source == "claude-code":
+        conversations = lire_claude_code(chemin)
+    elif source == "claude":
+        if not chemin:
+            return {"erreur": "chemin requis pour source='claude'"}
+        conversations = lire_claude_zip(chemin)
+    else:
+        return {"erreur": f"source inconnue : '{source}'. Valeurs : claude-code, claude"}
+
+    if not conversations:
+        return {"erreur": f"Aucune conversation trouvée (source={source}, chemin={chemin})"}
+
+    return paginer(conversations, page=page, taille_page=taille_page)
+
+
 def lancer():
     mcp.run()

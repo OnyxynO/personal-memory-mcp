@@ -20,7 +20,7 @@ Règles :
 - Catégorie parmi : stack | projet | preference | decision | contrainte | contexte | autre
 
 Retourne UNIQUEMENT un JSON valide, sans commentaire :
-[{"contenu": "...", "categorie": "...", "score_confiance": 0.0}]
+[{{"contenu": "...", "categorie": "...", "score_confiance": 0.0}}]
 
 Conversation :
 {texte}"""

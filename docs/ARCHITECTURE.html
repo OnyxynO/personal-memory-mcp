@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>personal-memory-mcp — Architecture</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 40px auto; padding: 0 24px; color: #1a1a1a; }
+    h1 { font-size: 1.6rem; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; }
+    h2 { font-size: 1.2rem; margin-top: 48px; color: #333; }
+    h3 { font-size: 1rem; color: #555; margin-top: 32px; }
+    .mermaid { background: #f8f8f8; border-radius: 8px; padding: 24px; margin: 16px 0; }
+    .note { background: #fff8e1; border-left: 4px solid #f9a825; padding: 12px 16px; border-radius: 4px; margin: 16px 0; font-size: 0.9rem; }
+    .good { background: #e8f5e9; border-left: 4px solid #43a047; padding: 12px 16px; border-radius: 4px; margin: 16px 0; font-size: 0.9rem; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.9rem; }
+    th { background: #f0f0f0; padding: 8px 12px; text-align: left; }
+    td { padding: 8px 12px; border-bottom: 1px solid #e0e0e0; }
+    code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+
+<h1>personal-memory-mcp — Architecture technique</h1>
+<p>Document de référence pour comprendre les deux modes d'alimentation du serveur MCP.</p>
+
+<!-- ============================================================ -->
+<h2>1. Vue d'ensemble — Ce qu'est personal-memory-mcp</h2>
+
+<p>Un serveur MCP local qui centralise une mémoire personnelle et l'expose à <strong>n'importe quel client IA compatible MCP</strong> (Claude Code, Claude Desktop, Cursor, etc.).</p>
+
+<div class="mermaid">
+graph TB
+    subgraph Clients["Clients MCP (Claude Code, Cursor, Claude Desktop...)"]
+        CC[Claude Code]
+        CD[Claude Desktop]
+        CU[Cursor]
+    end
+
+    subgraph Server["personal-memory-mcp (serveur local)"]
+        MCP[Serveur MCP<br/>search / add / list / delete]
+        DB[(SQLite + sqlite-vec<br/>~/.personal-memory/memory.db)]
+        EMB[Ollama<br/>nomic-embed-text<br/>embeddings uniquement]
+        MCP --> DB
+        MCP --> EMB
+    end
+
+    CC <-->|MCP stdio| MCP
+    CD <-->|MCP stdio| MCP
+    CU <-->|MCP stdio| MCP
+</div>
+
+<div class="note">
+  <strong>Principe :</strong> Ollama est utilisé <em>uniquement</em> pour les embeddings vectoriels (calcul de similarité). L'extraction des faits peut venir de deux sources différentes — c'est l'objet de ce document.
+</div>
+
+<!-- ============================================================ -->
+<h2>2. Mode A — Import batch via qwen3 (existant)</h2>
+
+<p>L'utilisateur lance <code>mmcp import</code> manuellement. qwen3:1.7b lit les conversations passées et extrait les faits. L'IA cliente n'est pas impliquée.</p>
+
+<div class="mermaid">
+sequenceDiagram
+    participant User as Utilisateur (CLI)
+    participant CLI as mmcp import
+    participant FS as Fichiers<br/>(JSONL / ZIP)
+    participant Q as qwen3:1.7b<br/>(Ollama)
+    participant EMB as nomic-embed-text<br/>(Ollama)
+    participant DB as SQLite + sqlite-vec
+
+    User->>CLI: mmcp import claude-code
+    CLI->>FS: Scan ~/.claude/projects/**/*.jsonl
+    FS-->>CLI: 207 fichiers JSONL
+
+    loop Pour chaque session
+        CLI->>Q: Texte conversation (tronqué 2000 chars/msg)
+        Q-->>CLI: JSON [{contenu, categorie, score_confiance}]
+        CLI->>EMB: Batch encode(faits[])
+        EMB-->>CLI: embeddings[]
+        CLI->>DB: Déduplique + insère faits
+    end
+
+    CLI-->>User: +35 faits, =1 dédupliqué, 58s
+</div>
+
+<h3>Limites de ce mode</h3>
+<table>
+  <tr><th>Problème</th><th>Cause</th></tr>
+  <tr><td>Bruit (états transitoires, chemins de fichiers...)</td><td>qwen3 1.7b ne discrimine pas bien "mémorisable" vs "éphémère"</td></tr>
+  <tr><td>Lent (58s pour 7 sessions)</td><td>1 appel LLM par session, modèle local</td></tr>
+  <tr><td>Chauffe le CPU</td><td>qwen3 + nomic-embed-text en local</td></tr>
+  <tr><td>Dépend d'Ollama pour l'extraction</td><td>Architecture couplée</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>3. Mode B — Import batch via l'IA cliente (proposé)</h2>
+
+<p>L'IA déjà connectée au serveur MCP (Claude, GPT, peu importe) lit elle-même les conversations brutes et appelle <code>add()</code> pour chaque fait qu'elle juge mémorisable. Zéro qwen3.</p>
+
+<div class="mermaid">
+sequenceDiagram
+    participant User as Utilisateur
+    participant AI as IA cliente<br/>(Claude, GPT, Cursor...)
+    participant MCP as personal-memory-mcp
+    participant FS as Fichiers<br/>(JSONL / ZIP)
+    participant EMB as nomic-embed-text<br/>(Ollama)
+    participant DB as SQLite + sqlite-vec
+
+    User->>AI: "Importe mes conversations Claude Code"
+    AI->>MCP: import_conversations(source="claude-code", page=1)
+    MCP->>FS: Lit et découpe les conversations
+    FS-->>MCP: Chunk 1/N (texte brut)
+    MCP-->>AI: {conversations: [...], page: 1, total_pages: N}
+
+    loop Pour chaque chunk reçu
+        AI->>AI: Décide quoi mémoriser
+        AI->>MCP: add("Préfère uv plutôt que pip", "preference")
+        MCP->>EMB: encode(fait)
+        EMB-->>MCP: embedding
+        MCP->>DB: Déduplique + insère
+        MCP-->>AI: {id: 42, nouveau: true}
+    end
+
+    AI->>MCP: import_conversations(source="claude-code", page=2)
+    Note over AI,MCP: Continue jusqu'à la dernière page
+    AI-->>User: "J'ai mémorisé 12 faits depuis tes sessions"
+</div>
+
+<div class="good">
+  <strong>Avantage clé :</strong> L'IA qui fait l'import est la même que celle qui utilisera la mémoire. Elle sait exactement ce qui sera utile dans ses futures sessions.
+</div>
+
+<h3>Nouvel outil MCP nécessaire : <code>import_conversations</code></h3>
+<table>
+  <tr><th>Paramètre</th><th>Type</th><th>Description</th></tr>
+  <tr><td><code>source</code></td><td>string</td><td>"claude-code" | "claude" | "chatgpt"</td></tr>
+  <tr><td><code>chemin</code></td><td>string?</td><td>Chemin ZIP (pour source="claude" ou "chatgpt")</td></tr>
+  <tr><td><code>page</code></td><td>int</td><td>Numéro de page (défaut: 1)</td></tr>
+  <tr><td><code>taille_page</code></td><td>int</td><td>Nb de conversations par page (défaut: 5)</td></tr>
+</table>
+
+<p>Retourne :</p>
+<pre><code>{
+  "conversations": [
+    {"source_detail": "session_abc.jsonl", "texte": "Utilisateur: ...\nAssistant: ..."},
+    ...
+  ],
+  "page": 1,
+  "total_pages": 42,
+  "total_conversations": 207
+}</code></pre>
+
+<!-- ============================================================ -->
+<h2>4. Mode C — Alimentation temps réel (outil add existant)</h2>
+
+<p>Pendant une session normale, l'IA appelle <code>add()</code> dès qu'elle apprend quelque chose de durable. Pas d'import, pas de batch — la mémoire se construit au fil des conversations.</p>
+
+<div class="mermaid">
+sequenceDiagram
+    participant User as Utilisateur
+    participant AI as IA cliente
+    participant MCP as personal-memory-mcp
+    participant EMB as nomic-embed-text
+    participant DB as SQLite + sqlite-vec
+
+    User->>AI: "Je préfère toujours travailler avec uv plutôt que pip"
+    AI->>AI: Détecte une préférence durable
+    AI->>MCP: add("Préfère uv plutôt que pip", "preference")
+    MCP->>EMB: encode(fait)
+    EMB-->>MCP: embedding
+    MCP->>DB: Déduplique + insère
+    MCP-->>AI: {id: 43, nouveau: true}
+    AI-->>User: "Je retiens ça pour nos prochaines sessions."
+
+    Note over User,AI: Session suivante...
+
+    User->>AI: Nouvelle session démarre
+    AI->>MCP: search("outils python préférés")
+    MCP->>DB: Recherche vectorielle
+    DB-->>MCP: [{contenu: "Préfère uv plutôt que pip", score: 0.94}]
+    MCP-->>AI: faits pertinents
+    AI->>AI: Injecte dans son contexte
+    AI-->>User: (sait déjà que l'utilisateur préfère uv)
+</div>
+
+<div class="note">
+  <strong>Prérequis :</strong> L'IA doit être instruite (via system prompt ou description des outils) de quand appeler <code>add</code>. Sans instruction explicite, elle ne le fait pas spontanément.
+</div>
+
+<!-- ============================================================ -->
+<h2>5. Comparaison des trois modes</h2>
+
+<table>
+  <tr>
+    <th></th>
+    <th>Mode A — Import qwen3</th>
+    <th>Mode B — Import via IA</th>
+    <th>Mode C — Temps réel</th>
+  </tr>
+  <tr>
+    <td><strong>Déclenchement</strong></td>
+    <td>Manuel (CLI)</td>
+    <td>Manuel (demande à l'IA)</td>
+    <td>Automatique (pendant session)</td>
+  </tr>
+  <tr>
+    <td><strong>Extraction par</strong></td>
+    <td>qwen3:1.7b (Ollama)</td>
+    <td>IA cliente (Claude, GPT...)</td>
+    <td>IA cliente</td>
+  </tr>
+  <tr>
+    <td><strong>Qualité</strong></td>
+    <td>⚠️ Moyenne (petit modèle)</td>
+    <td>✅ Excellente</td>
+    <td>✅ Excellente</td>
+  </tr>
+  <tr>
+    <td><strong>Ollama requis</strong></td>
+    <td>Extraction + embeddings</td>
+    <td>Embeddings uniquement</td>
+    <td>Embeddings uniquement</td>
+  </tr>
+  <tr>
+    <td><strong>Cas d'usage</strong></td>
+    <td>Bootstrap sans IA connectée</td>
+    <td>Bootstrap avec IA connectée</td>
+    <td>Usage courant</td>
+  </tr>
+  <tr>
+    <td><strong>Implémenté</strong></td>
+    <td>✅ Oui</td>
+    <td>❌ À faire (nouvel outil MCP)</td>
+    <td>✅ Oui (outil add existant)</td>
+  </tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>6. Flux complet — Cycle de vie d'un utilisateur</h2>
+
+<div class="mermaid">
+graph LR
+    subgraph Bootstrap["Démarrage (une fois)"]
+        B1[mmcp setup<br/>enregistre le serveur]
+        B2{Ollama<br/>disponible ?}
+        B3[Mode A<br/>mmcp import claude-code]
+        B4[Mode B<br/>demander à l'IA d'importer]
+        B1 --> B2
+        B2 -->|Oui| B3
+        B2 -->|Non / préféré| B4
+    end
+
+    subgraph Usage["Usage courant (chaque session)"]
+        U1[Session démarre]
+        U2[IA appelle search<br/>charge le contexte]
+        U3[Conversation]
+        U4{Fait durable<br/>détecté ?}
+        U5[IA appelle add<br/>mémorise le fait]
+        U1 --> U2 --> U3 --> U4
+        U4 -->|Oui| U5 --> U3
+        U4 -->|Non| U3
+    end
+
+    Bootstrap --> Usage
+</div>
+
+<!-- ============================================================ -->
+<h2>7. Ce qu'il faut implémenter pour le Mode B</h2>
+
+<ol>
+  <li>
+    <strong>Nouvel outil MCP <code>import_conversations</code></strong><br/>
+    Lit les JSONL ou ZIP, découpe en pages, retourne le texte brut à l'IA.
+    Pas d'appel LLM côté serveur — juste du parsing et du découpage.
+  </li>
+  <li>
+    <strong>Pagination obligatoire</strong><br/>
+    207 sessions × ~50 messages = trop long pour un seul appel. Pages de 3 à 10 conversations selon la taille.
+  </li>
+  <li>
+    <strong>Description des outils MCP</strong><br/>
+    Les descriptions des outils <code>add</code> et <code>import_conversations</code> doivent expliquer clairement quand les appeler (injectées automatiquement par le protocole MCP).
+  </li>
+</ol>
+
+<div class="good">
+  <strong>Résumé :</strong> qwen3 reste utile comme <em>fallback</em> pour les utilisateurs sans IA connectée ou qui veulent un import 100% local. Le Mode B devient le mode recommandé quand une IA est disponible.
+</div>
+
+<script>mermaid.initialize({ startOnLoad: true, theme: 'neutral' })</script>
+</body>
+</html>
