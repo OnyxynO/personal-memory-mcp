@@ -1,6 +1,6 @@
 # PersonalMemoryMCP — Spécifications techniques
 
-> Version : 0.1 — mars 2026
+> Version : 0.2 — mars 2026
 
 ---
 
@@ -104,6 +104,7 @@ personal-memory/
 ├── SPEC_FONCTIONNELLE.md
 ├── SPEC_TECHNIQUE.md
 ├── pyproject.toml
+├── pyrightconfig.json                   # Config Pyright (venvPath, venv, pythonVersion, include)
 ├── README.md
 │
 └── src/
@@ -117,7 +118,7 @@ personal-memory/
         │
         ├── mcp/
         │   ├── __init__.py
-        │   └── server.py                # Serveur MCP + définition des 5 outils
+        │   └── server.py                # Serveur MCP + définition des 6 outils
         │
         ├── memory/
         │   ├── __init__.py
@@ -134,7 +135,8 @@ personal-memory/
         │   ├── __init__.py
         │   ├── base.py                  # ImporteurBase (ABC) + dataclasses
         │   ├── claude_code.py           # ImporteurClaudeCode — MVP phase 1
-        │   └── claude.py                # ImporteurClaude (ZIP) — MVP phase 2
+        │   ├── claude.py                # ImporteurClaude (ZIP) — MVP phase 2
+        │   └── lecteur.py               # Parsing pur sans LLM — phase 5
         │
         └── setup/
             ├── __init__.py
@@ -237,11 +239,32 @@ def import_source(
 @tool
 def delete(id: int) -> dict:
     # {"succes": bool, "id": int}
+
+@tool
+def import_conversations(
+    source: str,                  # "claude-code" | "claude"
+    chemin: str | None = None,
+    page: int = 1,
+    taille_page: int = 5
+) -> dict:
+    # {
+    #   "conversations": [{"source_detail": str, "texte": str}],
+    #   "page": int,
+    #   "total_pages": int,
+    #   "total_conversations": int
+    # }
 ```
 
 ---
 
 ## 8. Pipeline d'extraction de faits
+
+Le pipeline peut opérer selon deux modes selon l'outil MCP utilisé :
+
+- **Mode serveur** (`import_source`) : extraction LLM déclenchée côté serveur via qwen3
+- **Mode client** (`import_conversations`) : le serveur fournit le texte brut paginé, l'IA cliente analyse et appelle `add()` — aucun LLM impliqué côté serveur
+
+**Pipeline mode serveur (`import_source`) :**
 
 ```
 Conversations
@@ -257,6 +280,23 @@ Conversations
 5. Déduplication — similarité vectorielle vs existants
      │
 6. Stockage sqlite + sqlite-vec
+```
+
+**Pipeline mode client (`import_conversations`) :**
+
+```
+Appel import_conversations(source, page)
+     │
+1. lecteur.py — parsing pur (lire_claude_code ou lire_claude_zip)
+     │            MIN_MOTS = 10, troncature à 1000 chars/message
+2. Pagination — paginer(conversations, page, taille_page)
+     │
+3. Retour JSON { conversations, page, total_pages, total_conversations }
+     │
+    [côté client IA]
+4. Analyse par l'IA appelante
+     │
+5. Appels add() pour les faits retenus
 ```
 
 ### Prompt d'extraction (ébauche)

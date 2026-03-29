@@ -1,6 +1,6 @@
 # PersonalMemoryMCP — Spécifications fonctionnelles
 
-> Version : 0.1 — mars 2026
+> Version : 0.2 — mars 2026
 
 ---
 
@@ -208,6 +208,49 @@ Permet à l'assistant de lancer un import sans passer par le CLI.
 
 Permet à l'assistant de retirer un fait obsolète signalé par l'utilisateur.
 
+### `import_conversations` — Récupérer les conversations brutes (6ème outil)
+
+Retourne les conversations brutes sous forme paginée, **sans extraction LLM côté serveur**.
+L'IA cliente reçoit le texte et décide elle-même quels faits mémoriser via `add`.
+
+**Arguments :**
+- `source` : `"claude-code"` | `"claude"` — source à lire
+- `chemin` *(optionnel)* : chemin personnalisé (ZIP pour Claude, répertoire pour Claude Code)
+- `page` *(défaut : 1)* : numéro de page à récupérer
+- `taille_page` *(défaut : 5)* : nombre de conversations par page
+
+**Retour :**
+```json
+{
+  "conversations": [
+    { "source_detail": "~/.claude/projects/.../session.jsonl", "texte": "..." },
+    ...
+  ],
+  "page": 1,
+  "total_pages": 12,
+  "total_conversations": 58
+}
+```
+
+**Workflow attendu :**
+
+```
+1. L'IA cliente appelle import_conversations(source, page=1)
+2. Elle analyse les conversations reçues
+3. Elle appelle add() pour chaque fait qu'elle juge mémorisable
+4. Elle boucle : import_conversations(source, page=2), import_conversations(source, page=3)...
+5. Elle s'arrête quand page > total_pages
+```
+
+**Différence avec `import_source` :**
+
+| | `import_source` | `import_conversations` |
+|---|---|---|
+| Extraction de faits | Côté serveur (qwen3 via Ollama) | Côté client (l'IA appelante) |
+| Contrôle de l'IA | Aucun | Total — elle choisit ce qu'elle mémorise |
+| Usage typique | CLI / import en masse | Session interactive, analyse fine |
+| Dépendance Ollama | Requise | Non requise pour le parsing |
+
 ---
 
 ## 4. Catégories de faits
@@ -286,6 +329,12 @@ Parseur ZIP en mémoire.
 
 **Critère de validation :** faits cohérents extraits depuis le ZIP d'export.
 
+### Phase 5 — Outil `import_conversations`
+Module `lecteur.py` de parsing pur (sans LLM ni embeddings).
+Exposition via outil MCP `import_conversations` avec pagination.
+
+**Critère de validation :** une IA cliente peut parcourir toutes les pages de conversations et mémoriser des faits via `add()` sans passer par `import_source`.
+
 ### Hors MVP
 - Import ChatGPT (format à documenter)
 - UI web FastAPI légère
@@ -296,10 +345,11 @@ Parseur ZIP en mémoire.
 
 ## 9. Critères de validation MVP complets
 
-- [ ] `mmcp serve` → Claude Code liste les 5 outils MCP disponibles
+- [ ] `mmcp serve` → Claude Code liste les 6 outils MCP disponibles
 - [ ] `mmcp import claude-code` → faits extraits, catégorisés, stockés
 - [ ] Re-import immédiat → compteur dédupliqués = total, zéro doublon
 - [ ] `search` depuis Claude Code → résultats pertinents en < 500ms
 - [ ] `mmcp setup` → config Claude Code mise à jour sans casser l'existant
 - [ ] `mmcp status` → confirme Ollama disponible + nb de faits correct
 - [ ] `mmcp import claude <zip>` → faits depuis memories.json + conversations
+- [ ] `import_conversations` → retourne conversations paginées sans extraction LLM ; une IA cliente peut boucler sur toutes les pages et appeler `add()` pour mémoriser

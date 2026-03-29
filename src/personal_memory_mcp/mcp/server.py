@@ -1,4 +1,4 @@
-"""Serveur MCP personal-memory — 5 outils."""
+"""Serveur MCP personal-memory — 6 outils."""
 
 from mcp.server.fastmcp import FastMCP
 from personal_memory_mcp.memory.service import MemoryService
