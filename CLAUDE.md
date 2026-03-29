@@ -52,6 +52,7 @@ uv run pytest -v            # avec détail par test
 - ✅ Phase 2 — Import Claude Code (JSONL)
 - ✅ Phase 3 — mmcp setup (détection clients, merge non-destructif)
 - ✅ Phase 4 — Import Claude ZIP (memories.json + conversations.json)
+- ✅ Phase 5 — Outil `import_conversations` (lecteur.py, parsing pur, pagination)
 - ✅ Suite de tests automatisés (20 tests)
 
 ## LSP
