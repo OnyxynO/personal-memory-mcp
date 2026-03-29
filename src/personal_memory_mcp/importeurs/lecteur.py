@@ -4,7 +4,6 @@ Utilisé par l'outil MCP import_conversations pour retourner le texte brut
 des conversations à l'IA cliente, qui décide elle-même quoi mémoriser.
 """
 
-import io
 import json
 import zipfile
 from pathlib import Path
@@ -109,9 +108,13 @@ def lire_claude_zip(chemin: str) -> list[dict]:
         return []
 
     conversations = []
-    data = chemin_zip.read_bytes()
 
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+    try:
+        zf_ctx = zipfile.ZipFile(chemin_zip)
+    except (zipfile.BadZipFile, zipfile.LargeZipFile, OSError) as exc:
+        return [{"source_detail": chemin_zip.name, "texte": f"[Erreur ouverture ZIP : {exc}]"}]
+
+    with zf_ctx as zf:
         noms = zf.namelist()
 
         # 1. memories.json en premier — markdown brut, l'IA lit directement
@@ -125,8 +128,11 @@ def lire_claude_zip(chemin: str) -> list[dict]:
                             "source_detail": "memories.json",
                             "texte": markdown,
                         })
-            except Exception:
-                pass
+            except (json.JSONDecodeError, KeyError, TypeError) as exc:
+                conversations.append({
+                    "source_detail": "memories.json",
+                    "texte": f"[Erreur lecture memories.json : {exc}]",
+                })
 
         # 2. conversations.json
         if "conversations.json" in noms:
@@ -147,12 +153,16 @@ def lire_claude_zip(chemin: str) -> list[dict]:
                             continue
                         lignes_conv.append(f"{label}: {texte[:1000]}")
                     if lignes_conv:
+                        uuid_conv = conv.get("uuid") or "uuid-inconnu"
                         conversations.append({
-                            "source_detail": conv.get("uuid", ""),
+                            "source_detail": uuid_conv,
                             "texte": "\n".join(lignes_conv),
                         })
-            except Exception:
-                pass
+            except (json.JSONDecodeError, KeyError, TypeError) as exc:
+                conversations.append({
+                    "source_detail": "conversations.json",
+                    "texte": f"[Erreur lecture conversations.json : {exc}]",
+                })
 
     return conversations
 

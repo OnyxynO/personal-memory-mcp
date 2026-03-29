@@ -98,6 +98,12 @@ def import_conversations(
         paginer,
     )
 
+    # Validation des paramètres de pagination
+    if page < 1:
+        return {"erreur": f"page doit être >= 1, reçu : {page}"}
+    if not (1 <= taille_page <= 50):
+        return {"erreur": f"taille_page doit être entre 1 et 50, reçu : {taille_page}"}
+
     if source == "claude-code":
         conversations = lire_claude_code(chemin)
     elif source == "claude":
