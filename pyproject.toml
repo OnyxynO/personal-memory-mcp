@@ -1,0 +1,30 @@
+[project]
+name = "personal-memory-mcp"
+version = "0.1.0"
+description = "Serveur MCP local — mémoire personnelle extraite depuis les historiques IA"
+readme = "README.md"
+authors = [
+    { name = "Sébastien Etievant", email = "etievant.sebastien@protonmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "mcp[cli]>=1.6.0",
+    "sqlite-vec>=0.1.7",
+    "typer>=0.15.0",
+    "rich>=14.0.0",
+    "httpx>=0.28.0",
+    "tomli-w>=1.2.0",
+]
+
+[project.scripts]
+mmcp = "personal_memory_mcp.cli.main:app"
+
+[build-system]
+requires = ["uv_build>=0.11.2,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.25.0",
+]
