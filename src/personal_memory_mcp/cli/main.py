@@ -104,8 +104,33 @@ def import_cmd(
         console.print(f"  [dim]= {res['dedupliques']} dédupliqués[/dim]")
         console.print(f"  [bold]✓ Terminé en {res['duree']}s[/bold]\n")
 
+    elif source == "chatgpt":
+        if not chemin:
+            console.print("[red]Chemin du ZIP requis pour 'mmcp import chatgpt <chemin.zip>'[/red]")
+            raise typer.Exit(1)
+        chemin_zip = Path(chemin).expanduser()
+        if not chemin_zip.exists():
+            console.print(f"[red]Fichier introuvable : {chemin_zip}[/red]")
+            raise typer.Exit(1)
+
+        console.print(f"\nLecture de l'export ChatGPT : [bold]{chemin_zip.name}[/bold]")
+        from personal_memory_mcp.importeurs.openai import ImporteurOpenAI
+        importeur = ImporteurOpenAI(svc)
+        with console.status("Import en cours (via Ollama qwen3)..."):
+            res = importeur.importer(str(chemin_zip))
+
+        if "erreur" in res:
+            console.print(f"[red]Erreur : {res['erreur']}[/red]")
+            raise typer.Exit(1)
+
+        console.print(f"  [green]+ {res['ajoutes']} nouveaux faits[/green]")
+        console.print(f"  [dim]= {res['dedupliques']} dédupliqués[/dim]")
+        if res.get("nb_erreurs"):
+            console.print(f"  [yellow]! {res['nb_erreurs']} erreurs[/yellow]")
+        console.print(f"  [bold]✓ Terminé en {res['duree']}s[/bold]\n")
+
     else:
-        console.print(f"[red]Source inconnue : '{source}'. Valeurs valides : claude-code, claude[/red]")
+        console.print(f"[red]Source inconnue : '{source}'. Valeurs valides : claude-code, claude, chatgpt[/red]")
         raise typer.Exit(1)
 
 

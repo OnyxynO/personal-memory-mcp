@@ -168,6 +168,86 @@ def lire_claude_zip(chemin: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# OpenAI / ChatGPT ZIP
+# ---------------------------------------------------------------------------
+
+def _extraire_texte_message_openai(msg: dict) -> str:
+    content = msg.get("content", {})
+    if not isinstance(content, dict):
+        return ""
+    parts = content.get("parts", [])
+    textes = [p for p in parts if isinstance(p, str) and p.strip()]
+    return " ".join(textes).strip()
+
+
+def lire_openai_zip(chemin: str) -> list[dict]:
+    """Retourne toutes les conversations depuis un export ZIP ChatGPT.
+
+    Chaque élément : {"source_detail": str, "texte": str}
+    """
+    chemin_zip = Path(chemin).expanduser()
+    if not chemin_zip.exists():
+        return []
+
+    try:
+        zf_ctx = zipfile.ZipFile(chemin_zip)
+    except (zipfile.BadZipFile, zipfile.LargeZipFile, OSError) as exc:
+        return [{"source_detail": chemin_zip.name, "texte": f"[Erreur ouverture ZIP : {exc}]"}]
+
+    conversations = []
+    with zf_ctx as zf:
+        noms = zf.namelist()
+        if "conversations.json" not in noms:
+            return [{"source_detail": chemin_zip.name, "texte": "[conversations.json absent du ZIP]"}]
+
+        try:
+            convs_data = json.loads(zf.read("conversations.json"))
+        except (json.JSONDecodeError, OSError) as exc:
+            return [{"source_detail": chemin_zip.name, "texte": f"[Erreur lecture conversations.json : {exc}]"}]
+
+        for conv in convs_data:
+            mapping = conv.get("mapping", {})
+            current_node_id = conv.get("current_node")
+            if not mapping or not current_node_id:
+                continue
+
+            # Reconstituer l'ordre des messages en remontant du noeud courant
+            chemin_noeuds: list[str] = []
+            noeud_id = current_node_id
+            while noeud_id:
+                chemin_noeuds.append(noeud_id)
+                noeud_id = mapping.get(noeud_id, {}).get("parent")
+            chemin_noeuds.reverse()
+
+            lignes_conv = []
+            for noeud_id in chemin_noeuds:
+                msg = mapping.get(noeud_id, {}).get("message")
+                if not msg:
+                    continue
+                role = msg.get("author", {}).get("role", "")
+                if role not in ("user", "assistant"):
+                    continue
+                if msg.get("weight", 1) == 0:
+                    continue
+                texte = _extraire_texte_message_openai(msg)
+                if len(texte.split()) < MIN_MOTS:
+                    continue
+                label = "Utilisateur" if role == "user" else "Assistant"
+                lignes_conv.append(f"{label}: {texte[:1000]}")
+
+            if lignes_conv:
+                conv_id = conv.get("id") or conv.get("conversation_id") or "id-inconnu"
+                titre = conv.get("title", "")
+                source_detail = f"{conv_id} ({titre})" if titre else conv_id
+                conversations.append({
+                    "source_detail": source_detail,
+                    "texte": "\n".join(lignes_conv),
+                })
+
+    return conversations
+
+
+# ---------------------------------------------------------------------------
 # Pagination
 # ---------------------------------------------------------------------------
 

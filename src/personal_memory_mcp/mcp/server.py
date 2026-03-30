@@ -47,8 +47,14 @@ def import_source(type: str, chemin: str | None = None) -> dict:
         from personal_memory_mcp.importeurs.claude import ImporteurClaude
         importeur = ImporteurClaude(svc)
         return importeur.importer(chemin)
+    elif type == "chatgpt":
+        if not chemin:
+            return {"erreur": "chemin requis pour l'import chatgpt"}
+        from personal_memory_mcp.importeurs.openai import ImporteurOpenAI
+        importeur = ImporteurOpenAI(svc)
+        return importeur.importer(chemin)
     else:
-        return {"erreur": f"type inconnu : {type}. Valeurs valides : claude-code, claude"}
+        return {"erreur": f"type inconnu : {type}. Valeurs valides : claude-code, claude, chatgpt"}
 
 
 @mcp.tool()
@@ -79,8 +85,8 @@ def import_conversations(
       stack | projet | preference | decision | contrainte | contexte | autre
 
     Args:
-        source:      "claude-code" (sessions ~/.claude) ou "claude" (ZIP export)
-        chemin:      Chemin vers le fichier ZIP (requis si source="claude")
+        source:      "claude-code" (sessions ~/.claude), "claude" ou "chatgpt" (ZIP export)
+        chemin:      Chemin vers le fichier ZIP (requis si source="claude" ou "chatgpt")
         page:        Numéro de page, commence à 1
         taille_page: Nombre de conversations par page (défaut 5, max conseillé 10)
 
@@ -95,6 +101,7 @@ def import_conversations(
     from personal_memory_mcp.importeurs.lecteur import (
         lire_claude_code,
         lire_claude_zip,
+        lire_openai_zip,
         paginer,
     )
 
@@ -110,8 +117,12 @@ def import_conversations(
         if not chemin:
             return {"erreur": "chemin requis pour source='claude'"}
         conversations = lire_claude_zip(chemin)
+    elif source == "chatgpt":
+        if not chemin:
+            return {"erreur": "chemin requis pour source='chatgpt'"}
+        conversations = lire_openai_zip(chemin)
     else:
-        return {"erreur": f"source inconnue : '{source}'. Valeurs : claude-code, claude"}
+        return {"erreur": f"source inconnue : '{source}'. Valeurs : claude-code, claude, chatgpt"}
 
     if not conversations:
         return {"erreur": f"Aucune conversation trouvée (source={source}, chemin={chemin})"}
