@@ -25,6 +25,12 @@ de conversations IA et les expose à tous les clients MCP compatibles.
 - `SPEC_FONCTIONNELLE.md` — comportements attendus, CLI, outils MCP, phases MVP
 - `SPEC_TECHNIQUE.md` — architecture, modèle de données, formats d'import, interfaces
 
+## Avertissements MCP — consommation de tokens
+
+- **`list_facts` sans filtre = réponse volumineuse** : ~70 tokens/fait, soit ~12k tokens pour 176 faits. Éviter en session normale — préférer `search(query)` qui retourne seulement les faits pertinents.
+- **`import_conversations` en Mode B** : chaque page de 5 conversations peut générer 2k-5k tokens de contexte. Préférer un **modèle peu coûteux** (haiku) pour les imports en boucle — la qualité d'extraction est suffisante et le coût est 10× inférieur à sonnet/opus.
+- **Règle générale** : pour tout appel MCP en boucle (pagination), utiliser haiku. Réserver sonnet/opus pour les recherches ponctuelles ou les décisions complexes sur les faits.
+
 ## Pièges connus (depuis expériences précédentes)
 
 - sqlite-vec bindings : tester l'import sur macOS arm64 dès la phase 1
