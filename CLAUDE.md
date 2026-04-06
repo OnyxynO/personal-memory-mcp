@@ -44,13 +44,14 @@ de conversations IA et les expose à tous les clients MCP compatibles.
 ## Tests
 
 ```bash
-uv run pytest               # 20 tests, ~0.09s, sans Ollama ni réseau
+uv run pytest               # 41 tests, ~0.10s, sans Ollama ni réseau
 uv run pytest -v            # avec détail par test
 ```
 
 - `tests/test_deduplication.py` — logique vectorielle, sqlite-vec en mémoire
 - `tests/test_extraction.py` — filtrage `<think>`, batch embeddings, httpx mocké
 - `tests/test_importeurs.py` — ImporteurClaudeCode + ImporteurClaude, ExtracteurMock
+- `tests/test_lecteur.py` — parsing pur JSONL et ZIP, pagination, filtrage
 
 ## État MVP (mars 2026)
 
@@ -64,6 +65,60 @@ uv run pytest -v            # avec détail par test
 ## LSP
 
 typescript-lsp non applicable. pyright-lsp ✅ actif globalement.
+
+## Règles pour Claude Code et agents IA
+
+Basées sur les patterns de `badlogic/pi-mono` et `theodo-group/debug-that`, adaptées au contexte Python/MCP:
+
+### Git
+- **Jamais** `git add -A` ni `git add .` — toujours spécifier les fichiers: `git add src/ tests/ CLAUDE.md`
+- **Jamais** `git reset --hard`, `git checkout .`, `git stash`
+- **Jamais** `git commit --amend` après `git push` — créer un nouveau commit à la place
+- Détail important: `git add -i` ne fonctionne pas (CLI agent non-interactif)
+
+### Fichiers
+- **Toujours** lire complètement un fichier avec Read avant de l'éditer (même si on ne modifie qu'une ligne)
+- **Jamais** `sed`, `cat`, `echo`, `awk` pour modifier des fichiers — utiliser l'outil Edit
+- **Jamais** `grep` ou `find` via bash — utiliser Grep ou Glob
+- Si un fichier n'existe pas et que c'est nécessaire, créer explicitement avec Write (pas de création implicite)
+
+### Code Python
+- **Zéro `any` type** — utiliser les unions et literals explicites (`str | None`, `"option1" | "option2"`)
+- **Zéro imports dynamiques** dans les chemins chauds (`await import(...)`) — charger les modules au démarrage ou via lazy loading explicit
+- **Zéro imports inutiles** — éliminer un import pour simplifier, même s'il reste du code non utilisé
+- **Docstrings obligatoires** sur toute classe publique et méthode MCP (style reStructuredText ou Google style)
+
+### Opérations async
+- Toujours vérifier que les appels réseau (httpx, etc.) sont dans des fonctions testables
+- Mock les dépendances externes (Ollama, fichiers ZIP) dans les tests
+- Fournir un fichier fixture pour tout test d'importation
+
+### Tests
+- Lancer `uv run pytest` après chaque changement — les 41 tests doivent passer
+- Ajouter des tests si vous créez une nouvelle méthode publique
+- Test coverage n'est pas un objectif rigide, mais chercher à couvrir les chemins critiques
+
+### MCP
+- Tous les outils doivent retourner un dictionnaire sérialisable en JSON
+- Les erreurs doivent être claires: `{"erreur": "message"}`, pas une exception
+- Documentations des outils doivent être dans les docstrings `@mcp.tool()`
+
+## Configuration MCP (Claude Code)
+
+Le serveur MCP est enregistré en **scope `user`** dans `~/.claude.json` — disponible dans tous les projets.
+
+```json
+// ~/.claude.json → mcpServers
+"personal-memory": {
+  "type": "stdio",
+  "command": "uv",
+  "args": ["run", "--project", "/Users/seb/Documents/Claude projet/personal-memory", "mmcp", "serve"]
+}
+```
+
+Pour modifier le scope : `claude mcp remove personal-memory` puis `claude mcp add -s user personal-memory -- uv run --project "..." mmcp serve`
+
+> Note : `mmcp setup` écrit dans `~/.claude/mcp.json` (fichier qui n'est pas lu par Claude Code CLI). La vraie config Claude Code est dans `~/.claude.json`.
 
 ## Commandes courantes
 

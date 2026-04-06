@@ -41,7 +41,25 @@ def _maintenant() -> str:
 
 
 class Storage:
+    """Couche SQLite + sqlite-vec : CRUD et recherche vectorielle.
+
+    Gère la persistance des faits avec leurs embeddings. Fournit l'interface
+    pour insertion, recherche par similarité, suppression et statistiques.
+
+    Attributes:
+        _chemin: Chemin vers le fichier SQLite.
+        _conn: Connexion SQLite thread-safe avec sqlite-vec chargé.
+    """
+
     def __init__(self, chemin_db: Path):
+        """Initialise la couche de stockage SQLite.
+
+        Crée le répertoire parent si absent, charge l'extension sqlite-vec,
+        et initialise le schéma (idempotent via CREATE TABLE IF NOT EXISTS).
+
+        Args:
+            chemin_db: Chemin vers memory.db (ex: ~/.personal-memory/memory.db).
+        """
         self._chemin = chemin_db
         chemin_db.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(chemin_db), check_same_thread=False)
@@ -60,6 +78,24 @@ class Storage:
         embedding: list[float],
         source_detail: str | None = None,
     ) -> int:
+        """Insère un nouveau fait avec son embedding.
+
+        Insère dans `faits` et `faits_vec` en transaction atomique.
+        L'embedding est encodé en blob float32[768] pour sqlite-vec.
+
+        Args:
+            contenu: Texte du fait (~1 phrase).
+            categorie: Catégorie du fait (ex: "stack", "projet").
+            source: Source du fait (ex: "claude-code", "manuel").
+            embedding: Vecteur d'embedding (768 dimensions pour nomic-embed-text).
+            source_detail: Détail optionnel (chemin fichier, session_id, etc.).
+
+        Returns:
+            ID du fait inséré (rowid).
+
+        Raises:
+            sqlite3.Error: En cas d'erreur BDD.
+        """
         curseur = self._conn.execute(
             """
             INSERT INTO faits (contenu, categorie, source, source_detail, date_creation)
@@ -83,6 +119,21 @@ class Storage:
         top_k: int = 5,
         categorie: str | None = None,
     ) -> list[dict[str, Any]]:
+        """Recherche vectorielle (k-plus proches voisins) dans les faits.
+
+        Utilise sqlite-vec pour recherche ANN rapide par similarité cosinus.
+        Met à jour automatiquement `date_derniere_utilisation` des faits retournés
+        (utilisé pour l'expiration des faits non utilisés > 12 mois).
+
+        Args:
+            embedding: Vecteur d'embedding de la requête (768 dimensions).
+            top_k: Nombre de résultats à retourner (défaut: 5).
+            categorie: Filtre optionnel par catégorie (si None, tous les faits).
+
+        Returns:
+            Liste de dicts avec clés: id, contenu, categorie, source, score.
+            `score` est la similarité cosinus normalisée (1 - distance, range [0, 1]).
+        """
         import struct
         blob = struct.pack(f"{len(embedding)}f", *embedding)
 
@@ -135,7 +186,18 @@ class Storage:
     def voisins_proches(
         self, embedding: list[float], top_k: int = 3
     ) -> list[tuple[int, float]]:
-        """Retourne les (rowid, distance) pour la déduplication."""
+        """Retourne les k plus proches voisins (rowid, distance) pour déduplication.
+
+        Utilisé par la couche métier pour vérifier si un fait est un doublon
+        avant insertion. Distance en cosinus [0, 2], où 0 = identique.
+
+        Args:
+            embedding: Vecteur d'embedding du candidat (768 dimensions).
+            top_k: Nombre de voisins à retourner (défaut: 3).
+
+        Returns:
+            Liste de tuples (id, distance) triés par distance croissante.
+        """
         import struct
         blob = struct.pack(f"{len(embedding)}f", *embedding)
         sql = """
@@ -152,6 +214,18 @@ class Storage:
         categorie: str | None = None,
         limite: int = 50,
     ) -> list[dict[str, Any]]:
+        """Liste les faits triés par date de création descendante (plus récents d'abord).
+
+        Attention: Sans filtre categorie, peut retourner ~70 tokens/fait.
+        Pour les appels MCP répétés, préférer rechercher() qui retourne moins de résultats.
+
+        Args:
+            categorie: Filtre optionnel par catégorie (si None, tous les faits).
+            limite: Nombre maximal de faits à retourner (défaut: 50).
+
+        Returns:
+            Liste de dicts avec clés: id, contenu, categorie, source, date_creation.
+        """
         if categorie:
             sql = """
                 SELECT id, contenu, categorie, source, date_creation
@@ -169,7 +243,15 @@ class Storage:
         return [dict(r) for r in rows]
 
     def obtenir_par_id(self, id: int) -> dict[str, Any] | None:
-        """Retourne un fait par son id, ou None s'il n'existe pas."""
+        """Retourne un fait actif par son identifiant.
+
+        Args:
+            id: Identifiant du fait.
+
+        Returns:
+            Dict avec clés: id, contenu, categorie, source, date_creation.
+            None si le fait n'existe pas ou est marqué comme inactif (supprimé).
+        """
         row = self._conn.execute(
             "SELECT id, contenu, categorie, source, date_creation FROM faits WHERE id = ? AND actif = 1",
             (id,),
@@ -177,6 +259,14 @@ class Storage:
         return dict(row) if row else None
 
     def supprimer(self, id: int) -> bool:
+        """Supprime un fait (soft delete: marque actif=0).
+
+        Args:
+            id: Identifiant du fait à supprimer.
+
+        Returns:
+            True si le fait existait et a été marqué comme inactif, False sinon.
+        """
         self._conn.execute("UPDATE faits SET actif = 0 WHERE id = ?", (id,))
         self._conn.commit()
         return self._conn.execute(
@@ -184,6 +274,13 @@ class Storage:
         ).fetchone()[0] > 0
 
     def compter(self) -> dict[str, Any]:
+        """Retourne le compte de faits actifs par catégorie.
+
+        Returns:
+            Dict avec clés:
+            - total: nombre total de faits actifs.
+            - par_categorie: dict {categorie: count} trié par count descendant.
+        """
         total = self._conn.execute(
             "SELECT COUNT(*) FROM faits WHERE actif = 1"
         ).fetchone()[0]
@@ -201,6 +298,16 @@ class Storage:
         nb_mis_a_jour: int,
         duree: float,
     ) -> None:
+        """Enregistre les statistiques d'un import dans la table `imports`.
+
+        Args:
+            type: Type d'import ("claude-code", "claude", "chatgpt").
+            chemin: Chemin du fichier importé (ZIP, répertoire, etc.) ou None.
+            nb_ajoutes: Nombre de nouveaux faits ajoutés.
+            nb_dedupliques: Nombre de faits détectés comme doublons.
+            nb_mis_a_jour: Nombre de faits existants mis à jour.
+            duree: Durée de l'import en secondes.
+        """
         self._conn.execute(
             """
             INSERT INTO imports (type, chemin, date_import, nb_faits_ajoutes,
@@ -212,6 +319,12 @@ class Storage:
         self._conn.commit()
 
     def dernier_import(self) -> dict[str, Any] | None:
+        """Retourne les stats du dernier import enregistré.
+
+        Returns:
+            Dict avec clés: type, date_import, nb_faits_ajoutes.
+            None si aucun import enregistré.
+        """
         row = self._conn.execute(
             "SELECT type, date_import, nb_faits_ajoutes FROM imports ORDER BY id DESC LIMIT 1"
         ).fetchone()
