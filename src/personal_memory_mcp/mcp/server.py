@@ -27,9 +27,31 @@ def add(contenu: str, categorie: str = "autre", source: str = "manuel") -> dict:
 
 
 @mcp.tool()
-def list_facts(categorie: str | None = None, limite: int = 50) -> list[dict]:
-    """Liste les faits stockés, optionnellement filtrés par catégorie."""
-    return _get_service().list(categorie=categorie, limite=limite)
+def list_facts(categorie: str | None = None, page: int = 1, taille_page: int = 20) -> dict:
+    """Liste les faits stockés avec pagination.
+
+    Préférer search() pour les recherches ponctuelles — list_facts() est conçu pour
+    l'exploration exhaustive de la base. Sans filtre, chaque fait pèse ~70 tokens.
+
+    Args:
+        categorie: Filtre optionnel (stack, projet, preference, decision,
+                   contrainte, contexte, autre). Si absent, tous les faits.
+        page:       Numéro de page, commence à 1 (défaut: 1).
+        taille_page: Faits par page (défaut: 20, max conseillé: 50).
+
+    Returns:
+        {
+          "faits": [{"id": int, "contenu": str, "categorie": str, ...}, ...],
+          "page": int,
+          "total_pages": int,
+          "total": int
+        }
+    """
+    if page < 1:
+        return {"erreur": f"page doit être >= 1, reçu : {page}"}
+    if not (1 <= taille_page <= 100):
+        return {"erreur": f"taille_page doit être entre 1 et 100, reçu : {taille_page}"}
+    return _get_service().list(categorie=categorie, page=page, taille_page=taille_page)
 
 
 @mcp.tool()

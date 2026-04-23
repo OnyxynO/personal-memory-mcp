@@ -249,3 +249,105 @@ class TestImporteurClaude:
         resultat = importeur.importer("/chemin/inexistant/export.zip")
 
         assert "erreur" in resultat
+
+
+# ---------------------------------------------------------------------------
+# Tests pagination list_facts
+# ---------------------------------------------------------------------------
+
+def _inserer_faits(service: ServiceMock, nb: int, categorie: str = "stack") -> None:
+    """Insère nb faits avec des embeddings uniques dans le service."""
+    for i in range(nb):
+        embedding = _vecteur_aleatoire()
+        service._storage.inserer_fait(
+            contenu=f"Fait numéro {i + 1}",
+            categorie=categorie,
+            source="test",
+            embedding=embedding,
+        )
+
+
+class TestPaginationListFacts:
+    """Tests de la pagination de list_facts (MemoryService.list)."""
+
+    def test_page_1_retourne_dict_avec_metadonnees(self):
+        """list() retourne un dict avec faits, page, total_pages, total."""
+        service = ServiceMock()
+        _inserer_faits(service, 5)
+
+        resultat = service.list(page=1, taille_page=10)
+
+        assert "faits" in resultat
+        assert "page" in resultat
+        assert "total_pages" in resultat
+        assert "total" in resultat
+        assert resultat["page"] == 1
+        assert resultat["total"] == 5
+        assert len(resultat["faits"]) == 5
+
+    def test_pagination_correcte(self):
+        """15 faits, taille_page=5 → 3 pages, chaque page a 5 faits."""
+        service = ServiceMock()
+        _inserer_faits(service, 15)
+
+        p1 = service.list(page=1, taille_page=5)
+        p2 = service.list(page=2, taille_page=5)
+        p3 = service.list(page=3, taille_page=5)
+
+        assert p1["total_pages"] == 3
+        assert p1["total"] == 15
+        assert len(p1["faits"]) == 5
+        assert len(p2["faits"]) == 5
+        assert len(p3["faits"]) == 5
+
+        # Les ids ne doivent pas se recouper entre pages
+        ids_p1 = {f["id"] for f in p1["faits"]}
+        ids_p2 = {f["id"] for f in p2["faits"]}
+        ids_p3 = {f["id"] for f in p3["faits"]}
+        assert ids_p1.isdisjoint(ids_p2)
+        assert ids_p1.isdisjoint(ids_p3)
+        assert ids_p2.isdisjoint(ids_p3)
+
+    def test_derniere_page_partielle(self):
+        """11 faits, taille_page=5 → 3 pages, page 3 contient 1 fait."""
+        service = ServiceMock()
+        _inserer_faits(service, 11)
+
+        p3 = service.list(page=3, taille_page=5)
+
+        assert p3["total_pages"] == 3
+        assert len(p3["faits"]) == 1
+
+    def test_page_hors_limites_retourne_liste_vide(self):
+        """Page au-delà du total → faits vide, total_pages inchangé."""
+        service = ServiceMock()
+        _inserer_faits(service, 3)
+
+        resultat = service.list(page=99, taille_page=10)
+
+        assert resultat["faits"] == []
+        assert resultat["total"] == 3
+
+    def test_base_vide_retourne_une_page(self):
+        """Base vide → total=0, total_pages=1, faits=[]."""
+        service = ServiceMock()
+
+        resultat = service.list(page=1, taille_page=10)
+
+        assert resultat["total"] == 0
+        assert resultat["total_pages"] == 1
+        assert resultat["faits"] == []
+
+    def test_filtre_par_categorie(self):
+        """Filtre categorie → total ne compte que les faits de cette catégorie."""
+        service = ServiceMock()
+        _inserer_faits(service, 6, categorie="stack")
+        _inserer_faits(service, 4, categorie="projet")
+
+        resultat_stack = service.list(categorie="stack", page=1, taille_page=10)
+        resultat_projet = service.list(categorie="projet", page=1, taille_page=10)
+
+        assert resultat_stack["total"] == 6
+        assert resultat_projet["total"] == 4
+        assert all(f["categorie"] == "stack" for f in resultat_stack["faits"])
+        assert all(f["categorie"] == "projet" for f in resultat_projet["faits"])

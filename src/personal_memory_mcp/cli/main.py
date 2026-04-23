@@ -160,14 +160,22 @@ def search(
 @app.command("list")
 def list_cmd(
     categorie: Annotated[Optional[str], typer.Option("--categorie", "-c")] = None,
-    limite: int = typer.Option(50, "--limite", "-l"),
+    page: int = typer.Option(1, "--page", "-p", help="Numéro de page (commence à 1)"),
+    limite: int = typer.Option(50, "--limite", "-l", help="Faits par page"),
 ):
-    """Liste les faits stockés."""
+    """Liste les faits stockés (paginés)."""
     svc = _service()
-    faits = svc.list(categorie=categorie, limite=limite)
-    stats = svc._storage.compter()
+    resultat = svc.list(categorie=categorie, page=page, taille_page=limite)
+    faits = resultat["faits"]
+    total = resultat["total"]
+    total_pages = resultat["total_pages"]
 
-    console.print(f"\n[bold]{stats['total']} faits[/bold] (actifs)\n")
+    titre = f"[bold]{total} faits[/bold]"
+    if categorie:
+        titre += f" (catégorie : {categorie})"
+    titre += f" — page {page}/{total_pages}"
+    console.print(f"\n{titre}\n")
+
     if not faits:
         console.print("[dim]Aucun fait trouvé.[/dim]")
         return
@@ -188,6 +196,8 @@ def list_cmd(
             f["date_creation"][:10],
         )
     console.print(table)
+    if total_pages > 1:
+        console.print(f"[dim]Page {page}/{total_pages} — utiliser --page N pour naviguer[/dim]")
     console.print()
 
 

@@ -347,19 +347,37 @@ class Storage:
         rows = self._conn.execute(sql, (blob, top_k)).fetchall()
         return [(r[0], r[1]) for r in rows]
 
+    def compter_faits(self, categorie: str | None = None) -> int:
+        """Compte les faits actifs, optionnellement filtrés par catégorie.
+
+        Args:
+            categorie: Filtre optionnel (si None, compte tous les faits actifs).
+
+        Returns:
+            Nombre de faits actifs correspondant au filtre.
+        """
+        if categorie:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM faits WHERE actif = 1 AND categorie = ?", (categorie,)
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM faits WHERE actif = 1"
+            ).fetchone()
+        return row[0]
+
     def lister(
         self,
         categorie: str | None = None,
-        limite: int = 50,
+        limite: int = 20,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """Liste les faits triés par date de création descendante (plus récents d'abord).
-
-        Attention: Sans filtre categorie, peut retourner ~70 tokens/fait.
-        Pour les appels MCP répétés, préférer rechercher() qui retourne moins de résultats.
+        """Liste les faits triés par id descendant (plus récents d'abord).
 
         Args:
             categorie: Filtre optionnel par catégorie (si None, tous les faits).
-            limite: Nombre maximal de faits à retourner (défaut: 50).
+            limite: Nombre maximal de faits à retourner (défaut: 20).
+            offset: Nombre de faits à sauter avant de retourner (pour pagination).
 
         Returns:
             Liste de dicts avec clés: id, contenu, categorie, source, date_creation.
@@ -368,16 +386,16 @@ class Storage:
             sql = """
                 SELECT id, contenu, categorie, source, date_creation
                 FROM faits WHERE actif = 1 AND categorie = ?
-                ORDER BY id DESC LIMIT ?
+                ORDER BY id DESC LIMIT ? OFFSET ?
             """
-            rows = self._conn.execute(sql, (categorie, limite)).fetchall()
+            rows = self._conn.execute(sql, (categorie, limite, offset)).fetchall()
         else:
             sql = """
                 SELECT id, contenu, categorie, source, date_creation
                 FROM faits WHERE actif = 1
-                ORDER BY id DESC LIMIT ?
+                ORDER BY id DESC LIMIT ? OFFSET ?
             """
-            rows = self._conn.execute(sql, (limite,)).fetchall()
+            rows = self._conn.execute(sql, (limite, offset)).fetchall()
         return [dict(r) for r in rows]
 
     def obtenir_par_id(self, id: int) -> dict[str, Any] | None:

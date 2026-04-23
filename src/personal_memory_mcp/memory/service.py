@@ -143,21 +143,38 @@ class MemoryService:
     def list(
         self,
         categorie: str | None = None,
-        limite: int = 50,
-    ) -> list[dict[str, Any]]:
-        """Liste les faits stockés.
+        page: int = 1,
+        taille_page: int = 20,
+    ) -> dict[str, Any]:
+        """Liste les faits stockés avec pagination.
 
-        Avertissement: Sans filtre, retourne ~70 tokens/fait (ex: 176 faits = ~12k tokens).
-        Préférer search() pour les appels MCP répétés.
+        Avertissement: Sans filtre et avec une grande taille_page, la réponse peut
+        saturer le contexte MCP (~70 tokens/fait). Préférer search() pour les
+        appels ponctuels, et list() avec pagination pour l'exploration.
 
         Args:
             categorie: Filtre optionnel par catégorie (si None, tous les faits).
-            limite: Nombre maximal de faits à retourner (défaut: 50).
+            page: Numéro de page, commence à 1 (défaut: 1).
+            taille_page: Nombre de faits par page (défaut: 20, max conseillé: 50).
 
         Returns:
-            Liste de dicts avec clés: id, contenu, categorie, source, date_creation.
+            Dict avec clés:
+            - faits: liste de dicts (id, contenu, categorie, source, date_creation)
+            - page: numéro de page courant
+            - total_pages: nombre total de pages
+            - total: nombre total de faits actifs (filtré si categorie précisée)
         """
-        return self._storage.lister(categorie=categorie, limite=limite)
+        import math
+        total = self._storage.compter_faits(categorie)
+        offset = (page - 1) * taille_page
+        faits = self._storage.lister(categorie=categorie, limite=taille_page, offset=offset)
+        total_pages = math.ceil(total / taille_page) if total > 0 else 1
+        return {
+            "faits": faits,
+            "page": page,
+            "total_pages": total_pages,
+            "total": total,
+        }
 
     def delete(self, id: int) -> dict[str, Any]:
         """Supprime un fait par son identifiant.
