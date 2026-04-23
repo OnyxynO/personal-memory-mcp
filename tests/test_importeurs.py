@@ -23,7 +23,7 @@ from personal_memory_mcp.importeurs.claude_code import ImporteurClaudeCode
 from personal_memory_mcp.importeurs.claude import ImporteurClaude
 from personal_memory_mcp.memory.deduplication import SEUIL_PAR_DEFAUT
 from personal_memory_mcp.memory.service import MemoryService
-from personal_memory_mcp.memory.storage import Storage, SCHEMA_SQL
+from personal_memory_mcp.memory.storage import Storage, SCHEMA_SQL_BASE
 
 
 # Chemin vers les fixtures
@@ -45,9 +45,11 @@ def _creer_storage_memoire() -> Storage:
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
-    conn.executescript(SCHEMA_SQL)
+    conn.executescript(SCHEMA_SQL_BASE)
+    conn.executescript(f"CREATE VIRTUAL TABLE faits_vec USING vec0(embedding FLOAT[{DIM}]);")
     conn.commit()
     storage._conn = conn
+    storage._dim = DIM
     return storage
 
 

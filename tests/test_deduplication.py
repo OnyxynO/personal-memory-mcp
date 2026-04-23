@@ -11,10 +11,10 @@ from unittest.mock import patch
 import sqlite_vec
 
 from personal_memory_mcp.memory.deduplication import est_doublon, SEUIL_PAR_DEFAUT
-from personal_memory_mcp.memory.storage import Storage, SCHEMA_SQL
+from personal_memory_mcp.memory.storage import Storage, SCHEMA_SQL_BASE
 
 
-# Dimension des vecteurs attendue par le schéma (FLOAT[768])
+# Dimension des vecteurs utilisée dans les tests
 DIM = 768
 
 
@@ -28,9 +28,11 @@ def _creer_storage_memoire() -> Storage:
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
-    conn.executescript(SCHEMA_SQL)
+    conn.executescript(SCHEMA_SQL_BASE)
+    conn.executescript(f"CREATE VIRTUAL TABLE faits_vec USING vec0(embedding FLOAT[{DIM}]);")
     conn.commit()
     storage._conn = conn
+    storage._dim = DIM
     return storage
 
 

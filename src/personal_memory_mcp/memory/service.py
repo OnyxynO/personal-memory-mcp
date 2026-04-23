@@ -43,12 +43,30 @@ class MemoryService:
             seuil_deduplication: Seuil cosinus (défaut: 0.92, range [0, 1]).
         """
         self._storage = Storage(chemin_db or _chemin_db_defaut())
+        # Le modèle d'embedding stocké en config prime sur la valeur par défaut.
+        # Cela permet de retrouver automatiquement le bon modèle après une migration.
+        modele_embeddings_effectif = (
+            self._storage.lire_config("modele_embeddings") or modele_embeddings
+        )
         self._extracteur = ExtracteurOllama(
             url=ollama_url,
             modele_extraction=modele_extraction,
-            modele_embeddings=modele_embeddings,
+            modele_embeddings=modele_embeddings_effectif,
         )
         self._seuil = seuil_deduplication
+
+    # --- Initialisation lazy des vecteurs ---
+
+    def _assurer_vecteurs_init(self, embedding: list[float]) -> None:
+        """Initialise faits_vec si nécessaire, détecte la dimension depuis l'embedding.
+
+        Appelé avant toute opération vectorielle (search, add). Sans effet si
+        faits_vec est déjà initialisée avec la bonne dimension.
+
+        Raises:
+            ValueError: Si la dimension détectée diffère de celle de la base existante.
+        """
+        self._storage.init_vecteurs(len(embedding))
 
     # --- Outils MCP ---
 
@@ -73,6 +91,7 @@ class MemoryService:
             Liste de dicts avec clés: id, contenu, categorie, source, score.
         """
         [embedding] = self._extracteur.embeddings([query])
+        self._assurer_vecteurs_init(embedding)
         return self._storage.rechercher(embedding, top_k=top_k, categorie=categorie)
 
     def add(
@@ -101,6 +120,7 @@ class MemoryService:
             ValueError: Si l'embedding ne peut pas être calculé (Ollama indisponible).
         """
         [embedding] = self._extracteur.embeddings([contenu])
+        self._assurer_vecteurs_init(embedding)
         if est_doublon(embedding, self._storage, self._seuil):
             # Trouver le fait existant le plus proche pour retourner son id
             voisins = self._storage.voisins_proches(embedding, top_k=1)
@@ -150,6 +170,69 @@ class MemoryService:
         """
         succes = self._storage.supprimer(id)
         return {"succes": succes, "id": id}
+
+    def migrer_embeddings(
+        self,
+        nouveau_modele: str,
+        callback: Any | None = None,
+    ) -> dict[str, Any]:
+        """Re-embed tous les faits actifs avec un nouveau modèle d'embedding.
+
+        Sauvegarde automatiquement la base avant de commencer. Recrée faits_vec
+        avec la nouvelle dimension, puis re-calcule les embeddings de tous les
+        faits en batch (par tranches de 32 pour limiter la consommation mémoire).
+
+        Args:
+            nouveau_modele: Nom du modèle Ollama cible (ex: "qwen3-embedding:0.6b").
+            callback: Fonction optionnelle appelée après chaque batch avec
+                      (nb_traites, nb_total). Utile pour afficher une progression.
+
+        Returns:
+            Dict avec clés: faits_migres (int), ancien_modele (str),
+            nouveau_modele (str), sauvegarde (str).
+        """
+        from datetime import datetime
+        from pathlib import Path
+
+        # 1. Sauvegarde automatique avant migration
+        horodatage = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dest_backup = Path.home() / ".personal-memory" / "backups" / f"pre_migration_{horodatage}.db"
+        self._storage.sauvegarder(dest_backup)
+
+        # 2. Changer le modèle d'embedding sur l'extracteur
+        ancien_modele = self._extracteur._modele_embeddings
+        self._extracteur._modele_embeddings = nouveau_modele
+
+        # 3. Détecter la nouvelle dimension via un embedding test
+        [vecteur_test] = self._extracteur.embeddings(["test"])
+        nouvelle_dim = len(vecteur_test)
+
+        # 4. Recréer faits_vec avec la nouvelle dimension (+ stocker le modèle en config)
+        self._storage.recreer_index_vecteurs(nouvelle_dim, modele=nouveau_modele)
+
+        # 5. Re-embedder tous les faits en batch
+        faits = self._storage.lister_tous_contenus()
+        nb_total = len(faits)
+        taille_batch = 32
+        nb_traites = 0
+
+        for i in range(0, nb_total, taille_batch):
+            batch = faits[i : i + taille_batch]
+            ids = [f[0] for f in batch]
+            contenus = [f[1] for f in batch]
+            embeddings = self._extracteur.embeddings(contenus)
+            for id_, embedding in zip(ids, embeddings):
+                self._storage.mettre_a_jour_vecteur(id_, embedding)
+            nb_traites += len(batch)
+            if callback:
+                callback(nb_traites, nb_total)
+
+        return {
+            "faits_migres": nb_traites,
+            "ancien_modele": ancien_modele,
+            "nouveau_modele": nouveau_modele,
+            "sauvegarde": str(dest_backup),
+        }
 
     def status(self) -> dict[str, Any]:
         stats = self._storage.compter()

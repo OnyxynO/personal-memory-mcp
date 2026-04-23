@@ -138,7 +138,7 @@ def import_cmd(
 def search(
     query: str = typer.Argument(help="Requête de recherche"),
     top_k: int = typer.Option(5, "--top-k", "-k", help="Nombre de résultats"),
-    seuil: float = typer.Option(0.70, "--seuil", "-s", help="Seuil de similarité minimum"),
+    seuil: float = typer.Option(0.20, "--seuil", "-s", help="Seuil de similarité minimum"),
 ):
     """Recherche sémantique dans la mémoire."""
     svc = _service()
@@ -312,6 +312,55 @@ def restore(
         shutil.copy2(chemin_backup, chemin_db)
 
     console.print(f"\n[green]✓ Base restaurée[/green] ({stats['faits']} faits)\n")
+
+
+@app.command("migrate-embeddings")
+def migrate_embeddings(
+    modele: str = typer.Option(
+        "qwen3-embedding:0.6b",
+        "--modele", "-m",
+        help="Modèle d'embedding cible (doit être disponible dans Ollama)",
+    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Ne pas demander confirmation"),
+):
+    """Migre tous les faits vers un nouveau modèle d'embedding.
+
+    Une sauvegarde automatique est créée avant la migration.
+    Le serveur MCP (mmcp serve) doit être arrêté avant de lancer cette commande.
+    """
+    svc = _service()
+
+    stats = svc._storage.compter()
+    nb_faits = stats["total"]
+    dim_actuelle = svc._storage._dim
+
+    console.print(f"\n[bold]Migration d'embedding[/bold]")
+    console.print(f"  Modèle cible  : [cyan]{modele}[/cyan]")
+    console.print(f"  Faits à migrer: {nb_faits}")
+    console.print(f"  Dimension actuelle : {dim_actuelle}D")
+    console.print()
+
+    if not force:
+        console.print("[yellow]Une sauvegarde automatique sera créée avant la migration.[/yellow]")
+        confirmer = typer.confirm(f"Migrer les {nb_faits} faits vers '{modele}' ?", default=False)
+        if not confirmer:
+            console.print("[dim]Annulé.[/dim]\n")
+            raise typer.Exit(0)
+
+    console.print()
+    with console.status("Migration en cours...") as statut:
+        try:
+            res = svc.migrer_embeddings(modele, callback=lambda n, t: statut.update(f"Migration : {n}/{t} faits..."))
+        except Exception as e:
+            console.print(f"[red]Erreur durant la migration : {e}[/red]")
+            console.print("[yellow]La base originale a été sauvegardée avant la migration.[/yellow]")
+            raise typer.Exit(1)
+
+    console.print(f"[green]✓ Migration terminée[/green]")
+    console.print(f"  Faits migrés  : {res['faits_migres']}")
+    console.print(f"  Ancien modèle : {res['ancien_modele']}")
+    console.print(f"  Nouveau modèle: {res['nouveau_modele']}")
+    console.print(f"  Sauvegarde    : {res['sauvegarde']}\n")
 
 
 @app.command()

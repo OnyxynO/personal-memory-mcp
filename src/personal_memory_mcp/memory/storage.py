@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_SQL = """
+SCHEMA_SQL_BASE = """
 CREATE TABLE IF NOT EXISTS faits (
     id                        INTEGER PRIMARY KEY AUTOINCREMENT,
     contenu                   TEXT NOT NULL,
@@ -30,8 +30,9 @@ CREATE TABLE IF NOT EXISTS imports (
     duree_secondes       REAL
 );
 
-CREATE VIRTUAL TABLE IF NOT EXISTS faits_vec USING vec0(
-    embedding FLOAT[768]
+CREATE TABLE IF NOT EXISTS config (
+    cle    TEXT PRIMARY KEY,
+    valeur TEXT NOT NULL
 );
 """
 
@@ -55,7 +56,12 @@ class Storage:
         """Initialise la couche de stockage SQLite.
 
         Crée le répertoire parent si absent, charge l'extension sqlite-vec,
-        et initialise le schéma (idempotent via CREATE TABLE IF NOT EXISTS).
+        et initialise le schéma de base (faits, imports, config).
+
+        La table vectorielle faits_vec est créée séparément via init_vecteurs()
+        car sa dimension dépend du modèle d'embedding utilisé. Pour les bases
+        existantes (avant cette version), la dimension 768 est auto-détectée
+        et stockée en config pour garantir la rétrocompatibilité.
 
         Args:
             chemin_db: Chemin vers memory.db (ex: ~/.personal-memory/memory.db).
@@ -67,7 +73,139 @@ class Storage:
         self._conn.enable_load_extension(True)
         sqlite_vec.load(self._conn)
         self._conn.enable_load_extension(False)
-        self._conn.executescript(SCHEMA_SQL)
+        self._conn.executescript(SCHEMA_SQL_BASE)
+        self._conn.commit()
+        self._dim: int = self._lire_ou_detecter_dim()
+
+    def _lire_ou_detecter_dim(self) -> int:
+        """Lit la dimension depuis config, ou la détecte depuis faits_vec existante.
+
+        Rétrocompatibilité : les bases créées avant cette version ont faits_vec
+        en FLOAT[768] sans entrée config. On détecte ce cas et on stocke 768
+        automatiquement pour éviter toute régression.
+
+        Returns:
+            Dimension des vecteurs (0 si nouvelle base non encore initialisée).
+        """
+        row = self._conn.execute(
+            "SELECT valeur FROM config WHERE cle = 'dim_embeddings'"
+        ).fetchone()
+        if row:
+            return int(row[0])
+        # Base existante sans config (avant cette version) → faits_vec est en 768D
+        faits_vec_existe = self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='faits_vec'"
+        ).fetchone()
+        if faits_vec_existe:
+            self._conn.execute(
+                "INSERT INTO config (cle, valeur) VALUES ('dim_embeddings', '768')"
+            )
+            self._conn.commit()
+            return 768
+        return 0
+
+    def init_vecteurs(self, dim: int) -> None:
+        """Initialise la table vectorielle avec la dimension donnée.
+
+        Appelé par MemoryService lors de la première opération d'embedding.
+        Sans effet si la table existe déjà avec la même dimension.
+
+        Args:
+            dim: Nombre de dimensions du modèle d'embedding utilisé.
+
+        Raises:
+            ValueError: Si la base existe déjà avec une dimension différente.
+                        Utiliser migrate_embeddings() pour changer de modèle.
+        """
+        if self._dim == dim:
+            return
+        if self._dim != 0:
+            raise ValueError(
+                f"Dimension incompatible : base initialisée en {self._dim}D, "
+                f"modèle actuel produit {dim}D. "
+                f"Utiliser 'mmcp migrate-embeddings' pour migrer."
+            )
+        self._dim = dim
+        self._conn.execute(
+            "INSERT INTO config (cle, valeur) VALUES ('dim_embeddings', ?)",
+            (str(dim),),
+        )
+        self._conn.commit()
+        self._conn.executescript(
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS faits_vec USING vec0(embedding FLOAT[{dim}]);"
+        )
+        self._conn.commit()
+
+    def recreer_index_vecteurs(self, nouvelle_dim: int, modele: str | None = None) -> None:
+        """Recrée faits_vec avec une nouvelle dimension (opération de migration).
+
+        Supprime et recrée la table vectorielle. Les vecteurs existants sont
+        perdus — la migration doit re-embedder tous les faits via
+        mettre_a_jour_vecteur() après cet appel.
+
+        Args:
+            nouvelle_dim: Nouvelle dimension cible.
+            modele: Nom du modèle d'embedding à stocker en config (optionnel).
+        """
+        self._conn.executescript("DROP TABLE IF EXISTS faits_vec;")
+        self._conn.execute(
+            "INSERT OR REPLACE INTO config (cle, valeur) VALUES ('dim_embeddings', ?)",
+            (str(nouvelle_dim),),
+        )
+        if modele:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO config (cle, valeur) VALUES ('modele_embeddings', ?)",
+                (modele,),
+            )
+        self._conn.commit()
+        self._conn.executescript(
+            f"CREATE VIRTUAL TABLE faits_vec USING vec0(embedding FLOAT[{nouvelle_dim}]);"
+        )
+        self._conn.commit()
+        self._dim = nouvelle_dim
+
+    def lire_config(self, cle: str) -> str | None:
+        """Lit une valeur depuis la table config.
+
+        Args:
+            cle: Clé de configuration à lire.
+
+        Returns:
+            Valeur associée, ou None si la clé n'existe pas.
+        """
+        row = self._conn.execute(
+            "SELECT valeur FROM config WHERE cle = ?", (cle,)
+        ).fetchone()
+        return row[0] if row else None
+
+    def lister_tous_contenus(self) -> list[tuple[int, str]]:
+        """Retourne (id, contenu) de tous les faits actifs, pour re-embedding.
+
+        Returns:
+            Liste de tuples (id, contenu) triés par id croissant.
+        """
+        rows = self._conn.execute(
+            "SELECT id, contenu FROM faits WHERE actif = 1 ORDER BY id"
+        ).fetchall()
+        return [(r[0], r[1]) for r in rows]
+
+    def mettre_a_jour_vecteur(self, id: int, embedding: list[float]) -> None:
+        """Met à jour le vecteur d'un fait existant dans faits_vec.
+
+        Supprime l'ancien vecteur et insère le nouveau. Utilisé lors de la
+        migration pour re-embedder les faits avec un nouveau modèle.
+
+        Args:
+            id: Identifiant du fait (rowid dans faits_vec).
+            embedding: Nouveau vecteur d'embedding.
+        """
+        import struct
+        blob = struct.pack(f"{len(embedding)}f", *embedding)
+        self._conn.execute("DELETE FROM faits_vec WHERE rowid = ?", (id,))
+        self._conn.execute(
+            "INSERT INTO faits_vec (rowid, embedding) VALUES (?, ?)",
+            (id, blob),
+        )
         self._conn.commit()
 
     def inserer_fait(
