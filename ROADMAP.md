@@ -1,15 +1,18 @@
 # PersonalMemoryMCP — Roadmap
 
-> Dernière mise à jour : mars 2026
+> Dernière mise à jour : avril 2026
 
 ---
 
-## État actuel — MVP complet (phases 1-5)
+## État actuel — MVP complet (phases 1-6)
 
 - ✅ Serveur MCP : 6 outils (search, add, list_facts, delete, import_source, import_conversations)
-- ✅ CLI `mmcp` : serve, setup, import, search, list, status, clean
+- ✅ CLI `mmcp` : serve, setup, import, search, list, status, clean, backup, restore, migrate-embeddings
 - ✅ Import Claude Code (JSONL) via LLM + via lecture brute paginée
 - ✅ Import Claude ZIP (memories.json + conversations.json)
+- ✅ Import ChatGPT ZIP (conversations.json OpenAI)
+- ✅ Backup/restore de la base SQLite (`mmcp backup`, `mmcp restore`)
+- ✅ Migration entre modèles d'embedding avec dimensions dynamiques (`mmcp migrate-embeddings`)
 - ✅ 41 tests automatisés (~0.09s, sans Ollama ni réseau)
 - ✅ Docs : ARCHITECTURE.html, specs v0.2, pyrightconfig.json
 

@@ -53,14 +53,17 @@ uv run pytest -v            # avec détail par test
 - `tests/test_importeurs.py` — ImporteurClaudeCode + ImporteurClaude, ExtracteurMock
 - `tests/test_lecteur.py` — parsing pur JSONL et ZIP, pagination, filtrage
 
-## État MVP (mars 2026)
+## État MVP (avril 2026)
 
 - ✅ Phase 1 — Serveur MCP (search, add, list, delete, import_source)
 - ✅ Phase 2 — Import Claude Code (JSONL)
 - ✅ Phase 3 — mmcp setup (détection clients, merge non-destructif)
 - ✅ Phase 4 — Import Claude ZIP (memories.json + conversations.json)
 - ✅ Phase 5 — Outil `import_conversations` (lecteur.py, parsing pur, pagination)
-- ✅ Suite de tests automatisés (20 tests)
+- ✅ Phase 6 — Import ChatGPT ZIP (ImporteurChatGPT, source="chatgpt")
+- ✅ `mmcp backup` / `mmcp restore` — sauvegarde/restauration DB SQLite
+- ✅ `mmcp migrate-embeddings` — migration entre modèles + dimensions dynamiques
+- ✅ Suite de tests automatisés (41 tests)
 
 ## LSP
 
@@ -126,5 +129,9 @@ Pour modifier le scope : `claude mcp remove personal-memory` puis `claude mcp ad
 uv run mmcp serve          # Lance le serveur MCP
 uv run mmcp import claude-code
 uv run mmcp import claude ~/Downloads/export.zip
+uv run mmcp import chatgpt ~/Downloads/export.zip
+uv run mmcp backup         # Sauvegarde vers ~/.personal-memory/backups/
+uv run mmcp restore        # Restaure depuis une sauvegarde
+uv run mmcp migrate-embeddings --modele qwen3-embedding:0.6b
 uv run pytest
 ```
