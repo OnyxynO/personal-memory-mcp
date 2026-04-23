@@ -40,11 +40,12 @@ de conversations IA et les expose à tous les clients MCP compatibles.
 - Export Claude : texte dans `content[].text`, pas dans `text` direct
 - `PROMPT_EXTRACTION` contient des accolades JSON — doubler `{{` / `}}` si `.format()` est utilisé, sinon `KeyError` systématique
 - `ServiceMock` dans les tests doit hériter de `MemoryService` (pas juste duck-type) pour satisfaire Pyright sur les annotations `"MemoryService"` dans les importeurs
+- **haiku enveloppe JSON dans backticks** : `json.loads()` échoue silencieusement — stripper avant parsing : `re.sub(r"^```[a-z]*\n?", "", brut).rstrip("`").strip()`. Même famille que le filtre `<think>` de qwen3.
 
 ## Tests
 
 ```bash
-uv run pytest               # 41 tests, ~0.10s, sans Ollama ni réseau
+uv run pytest               # 52 tests, ~0.25s, sans Ollama ni réseau
 uv run pytest -v            # avec détail par test
 ```
 
@@ -63,7 +64,8 @@ uv run pytest -v            # avec détail par test
 - ✅ Phase 6 — Import ChatGPT ZIP (ImporteurChatGPT, source="chatgpt")
 - ✅ `mmcp backup` / `mmcp restore` — sauvegarde/restauration DB SQLite
 - ✅ `mmcp migrate-embeddings` — migration entre modèles + dimensions dynamiques
-- ✅ Suite de tests automatisés (41 tests)
+- ✅ Pagination `list_facts` — `page` + `taille_page`, dict `{faits, page, total_pages, total}`
+- ✅ Suite de tests automatisés (54 tests : 52 sans réseau + 2 intégration haiku)
 
 ## LSP
 

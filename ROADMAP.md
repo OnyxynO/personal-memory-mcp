@@ -13,7 +13,7 @@
 - ✅ Import ChatGPT ZIP (conversations.json OpenAI)
 - ✅ Backup/restore de la base SQLite (`mmcp backup`, `mmcp restore`)
 - ✅ Migration entre modèles d'embedding avec dimensions dynamiques (`mmcp migrate-embeddings`)
-- ✅ 41 tests automatisés (~0.09s, sans Ollama ni réseau)
+- ✅ 54 tests automatisés (52 sans réseau + 2 intégration haiku)
 - ✅ Docs : ARCHITECTURE.html, specs v0.2, pyrightconfig.json
 
 ---
@@ -23,16 +23,16 @@
 342 faits actifs en base, import Claude Code + Claude ZIP + ChatGPT ZIP validés en prod.
 
 Frictions identifiées :
-- `list_facts` sans filtre sature le contexte (~12k tokens) → issue pagination planifiée
+- `list_facts` sans filtre saturait le contexte (~12k tokens) → **résolu** : pagination `page`/`taille_page`
 - Doublons catégories avec/sans accent (`piege` vs `piège`) → OnyxynO/personal-memory-mcp#3
 
 ---
 
 ## Court terme — Améliorations techniques
 
-- [ ] **Pagination `list_facts`** — sans filtre, retourne tous les faits en une réponse (~12k tokens pour 176 faits), ce qui sature le contexte MCP rapidement. Ajouter `page` + `taille_page` comme dans `import_conversations`.
+- ✅ **Pagination `list_facts`** — `page` + `taille_page`, retourne dict `{faits, page, total_pages, total}`. CLI `mmcp list --page N`.
+- ✅ **Tests d'intégration MCP** — `test_integration_mcp.py` : 5 tests MCP directs + 2 tests haiku (skippés sans `ANTHROPIC_API_KEY`).
 - [ ] **Journalisation `OSError` dans `_lire_jsonl`** — actuellement silencieux, difficile à diagnostiquer en cas de problème de permissions sur un fichier JSONL
-- [ ] **Tests d'intégration MCP** — tester le serveur end-to-end (appels MCP réels, pas seulement les unités)
 - [ ] **Publication PyPI** — `personal-memory-mcp` est déjà configuré dans `pyproject.toml`
 
 ---
