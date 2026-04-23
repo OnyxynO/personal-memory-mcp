@@ -221,6 +221,100 @@ def status():
 
 
 @app.command()
+def backup(
+    destination: Annotated[Optional[str], typer.Argument(help="Fichier ou répertoire de destination")] = None,
+):
+    """Sauvegarde la base dans ~/.personal-memory/backups/ (ou chemin indiqué)."""
+    from datetime import datetime
+    svc = _service()
+    storage = svc._storage
+
+    if destination:
+        dest = Path(destination).expanduser()
+        if dest.is_dir() or str(destination).endswith("/"):
+            horodatage = datetime.now().strftime("%Y%m%d_%H%M%S")
+            dest = dest / f"memory_{horodatage}.db"
+    else:
+        horodatage = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dest = Path.home() / ".personal-memory" / "backups" / f"memory_{horodatage}.db"
+
+    with console.status(f"Sauvegarde vers [bold]{dest}[/bold]..."):
+        res = storage.sauvegarder(dest)
+
+    console.print(f"\n[green]✓ Sauvegarde créée[/green]")
+    console.print(f"  Fichier  : [bold]{res['destination']}[/bold]")
+    console.print(f"  Faits    : {res['faits']} actifs")
+    console.print(f"  Taille   : {res['taille_mo']} Mo\n")
+
+
+@app.command()
+def restore(
+    fichier: Annotated[Optional[str], typer.Argument(help="Fichier de sauvegarde (.db)")] = None,
+    liste: bool = typer.Option(False, "--list", "-l", help="Lister les sauvegardes disponibles"),
+    force: bool = typer.Option(False, "--force", "-f", help="Ne pas demander confirmation"),
+):
+    """Restaure la base depuis une sauvegarde. Arrêter mmcp serve avant."""
+    from personal_memory_mcp.memory.storage import Storage
+
+    dossier_backups = Path.home() / ".personal-memory" / "backups"
+
+    if liste or not fichier:
+        if not dossier_backups.exists() or not list(dossier_backups.glob("*.db")):
+            console.print("[dim]Aucune sauvegarde dans ~/.personal-memory/backups/[/dim]")
+            if not fichier:
+                raise typer.Exit(0)
+        else:
+            backups = sorted(dossier_backups.glob("*.db"), reverse=True)
+            console.print(f"\n[bold]Sauvegardes disponibles[/bold] ({dossier_backups}) :\n")
+            table = Table(show_header=True, header_style="bold")
+            table.add_column("Fichier")
+            table.add_column("Faits", justify="right")
+            table.add_column("Taille", justify="right")
+            table.add_column("Date", width=20)
+            for b in backups:
+                stats = Storage.valider_backup(b)
+                if stats:
+                    from datetime import datetime
+                    mtime = datetime.fromtimestamp(b.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                    table.add_row(b.name, str(stats["faits"]), f"{stats['taille_mo']} Mo", mtime)
+                else:
+                    table.add_row(b.name, "[red]invalide[/red]", "-", "-")
+            console.print(table)
+            console.print()
+            if not fichier:
+                raise typer.Exit(0)
+
+    chemin_backup = Path(fichier).expanduser()  # type: ignore[arg-type]
+    if not chemin_backup.exists():
+        console.print(f"[red]Fichier introuvable : {chemin_backup}[/red]")
+        raise typer.Exit(1)
+
+    stats = Storage.valider_backup(chemin_backup)
+    if not stats:
+        console.print(f"[red]Fichier invalide ou corrompu : {chemin_backup}[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"\nSauvegarde : [bold]{chemin_backup.name}[/bold]")
+    console.print(f"  Faits    : {stats['faits']} actifs")
+    console.print(f"  Taille   : {stats['taille_mo']} Mo")
+
+    chemin_db = Path.home() / ".personal-memory" / "memory.db"
+    if chemin_db.exists():
+        console.print(f"\n[yellow]⚠ Ceci remplacera la base actuelle :[/yellow] {chemin_db}")
+        if not force:
+            confirmer = typer.confirm("Continuer ?", default=False)
+            if not confirmer:
+                console.print("[dim]Annulé.[/dim]\n")
+                raise typer.Exit(0)
+
+    import shutil
+    with console.status("Restauration en cours..."):
+        shutil.copy2(chemin_backup, chemin_db)
+
+    console.print(f"\n[green]✓ Base restaurée[/green] ({stats['faits']} faits)\n")
+
+
+@app.command()
 def clean():
     """Supprime les faits expirés (jamais utilisés ou > 12 mois sans utilisation)."""
     from datetime import datetime, timezone, timedelta

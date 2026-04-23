@@ -1,6 +1,6 @@
 # personal-memory — CLAUDE.md
 
-@../GUIDELINES_PROJETS.md
+@../../GUIDELINES_PROJETS.md
 
 ## Contexte projet
 

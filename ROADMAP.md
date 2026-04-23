@@ -15,14 +15,13 @@
 
 ---
 
-## Prochaine étape immédiate — Validation en conditions réelles
+## ✅ Validation en conditions réelles (avril 2026)
 
-Avant d'ajouter des features, utiliser ce qui existe sur de vraies données :
+342 faits actifs en base, import Claude Code + Claude ZIP + ChatGPT ZIP validés en prod.
 
-- [ ] Lancer `mmcp serve` et appeler `import_conversations` depuis Claude Code
-- [ ] Parcourir les pages de sessions réelles, appeler `add()` pour les faits retenus
-- [ ] Vérifier `mmcp list` et `mmcp search` sur la base résultante
-- [ ] Identifier les frictions UX (messages trop longs ? pagination trop petite ? catégories manquantes ?)
+Frictions identifiées :
+- `list_facts` sans filtre sature le contexte (~12k tokens) → issue pagination planifiée
+- Doublons catégories avec/sans accent (`piege` vs `piège`) → OnyxynO/personal-memory-mcp#3
 
 ---
 
@@ -76,11 +75,6 @@ mmcp ui --port 9000
 - Usage : migration, sauvegarde avant `mmcp clean`, partage entre machines
 - Commande : `mmcp export [--format json|csv] [--categorie X]`
 
-### Phase 8 — Support Obsidian / Markdown
-- Import de notes Markdown structurées comme source de faits
-- Format : fichiers `.md` avec frontmatter YAML ou sections `##`
-- Usage : notes personnelles, journal de bord, wiki local
-
 ---
 
 ## Long terme — Idées non planifiées
@@ -89,6 +83,7 @@ mmcp ui --port 9000
 - Synchronisation entre machines (export/import manuel ou via fichier partagé)
 - Import Cursor / Windsurf (si formats accessibles)
 - Catégories personnalisables (au-delà des 7 prédéfinies)
+- **Graph traversal sémantique** — relier faits et conversations par arêtes typées ("a_causé", "a_résolu", "lié_à") pour permettre la découverte non sollicitée : connexions entre connaissances que ni l'utilisateur ni l'agent ne penseraient à chercher explicitement. Le manque actuel : la recherche vectorielle répond aux questions posées, mais ne remonte pas les liens latents entre domaines (ex : un pattern de bug DataMatch qui rejoint un principe de GUIDELINES). Piste technique : graphe SQLite (table `aretes` avec `source_id`, `cible_id`, `type`, `poids`) + traversal BFS/DFS à la requête, en complément du vectoriel existant.
 
 ---
 

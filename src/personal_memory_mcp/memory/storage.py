@@ -329,3 +329,63 @@ class Storage:
             "SELECT type, date_import, nb_faits_ajoutes FROM imports ORDER BY id DESC LIMIT 1"
         ).fetchone()
         return dict(row) if row else None
+
+    def sauvegarder(self, destination: Path) -> dict[str, Any]:
+        """Sauvegarde la base via l'API SQLite backup (cohérent même si DB ouverte).
+
+        Utilise sqlite3.Connection.backup() qui garantit une copie cohérente
+        même en cas d'écritures concurrentes. Le répertoire de destination
+        est créé si absent.
+
+        Args:
+            destination: Chemin du fichier de sauvegarde (.db).
+
+        Returns:
+            Dict avec clés: destination (str), faits (int), taille_mo (float).
+        """
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        conn_dest = sqlite3.connect(str(destination))
+        self._conn.backup(conn_dest)
+        conn_dest.close()
+        stats = self.compter()
+        taille = destination.stat().st_size / 1024 / 1024
+        return {
+            "destination": str(destination),
+            "faits": stats["total"],
+            "taille_mo": round(taille, 2),
+        }
+
+    @staticmethod
+    def valider_backup(chemin: Path) -> dict[str, Any] | None:
+        """Vérifie qu'un fichier est une sauvegarde personal-memory valide.
+
+        Ouvre le fichier en lecture seule et vérifie la présence des tables
+        attendues (faits, imports). Retourne None si le fichier est invalide
+        ou corrompu.
+
+        Args:
+            chemin: Chemin vers le fichier de sauvegarde à valider.
+
+        Returns:
+            Dict avec clés: faits (int), taille_mo (float).
+            None si le fichier n'est pas une sauvegarde valide.
+        """
+        try:
+            conn = sqlite3.connect(f"file:{chemin}?mode=ro", uri=True)
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if not {"faits", "imports"}.issubset(tables):
+                conn.close()
+                return None
+            total = conn.execute(
+                "SELECT COUNT(*) FROM faits WHERE actif = 1"
+            ).fetchone()[0]
+            conn.close()
+            taille = chemin.stat().st_size / 1024 / 1024
+            return {"faits": total, "taille_mo": round(taille, 2)}
+        except Exception:
+            return None
