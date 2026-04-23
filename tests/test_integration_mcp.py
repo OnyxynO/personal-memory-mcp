@@ -15,6 +15,7 @@ Lancer uniquement les tests sans API :
 import json
 import os
 import random
+import re
 import sqlite3
 from pathlib import Path
 from unittest.mock import patch
@@ -229,7 +230,7 @@ Règles :
 - Catégorie parmi : stack | projet | preference | decision | contrainte | contexte | autre
 
 Retourne UNIQUEMENT un JSON valide, sans commentaire :
-[{"contenu": "...", "categorie": "...", "score_confiance": 0.0}]
+[{{"contenu": "...", "categorie": "...", "score_confiance": 0.0}}]
 
 Conversation :
 {texte}"""
@@ -249,6 +250,9 @@ Conversation :
             messages=[{"role": "user", "content": self.PROMPT.format(texte=texte)}],
         )
         brut = reponse.content[0].text.strip()
+        # Haiku enveloppe parfois le JSON dans des backticks markdown — on les retire
+        if brut.startswith("```"):
+            brut = re.sub(r"^```[a-z]*\n?", "", brut).rstrip("`").strip()
         try:
             faits_json = json.loads(brut)
             return [
