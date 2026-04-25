@@ -9,3 +9,4 @@ dist/
 .env.local
 *.zip
 imports/
+.DS_Store
