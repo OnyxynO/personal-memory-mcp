@@ -13,6 +13,8 @@
     display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
   }
   header h1 { font-size: 1.1rem; font-weight: 600; flex: 0 0 auto; }
+  header h1 a { color: inherit; text-decoration: none; cursor: pointer; }
+  header h1 a:hover { opacity: 0.8; }
   #total { font-size: 0.85rem; color: #aaa; }
 
   #search-wrap { flex: 1 1 200px; }
@@ -78,7 +80,7 @@
 <body>
 
 <header>
-  <h1>Personal Memory</h1>
+  <h1><a href="/">Personal Memory</a></h1>
   <span id="total"></span>
   <div id="search-wrap">
     <input id="search" type="search" placeholder="Rechercher…" autocomplete="off">
