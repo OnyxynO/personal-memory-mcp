@@ -119,6 +119,7 @@ class ImporteurOpenAI(ImporteurBase):
                             source="chatgpt",
                             embedding=embedding,
                             source_detail=conv.source_detail,
+                            score_importance=fait.score_confiance,
                         )
                         resultat.ajoutes += 1
             except Exception as e:

@@ -140,6 +140,7 @@ class ImporteurClaude(ImporteurBase):
                                     source="claude",
                                     embedding=embedding,
                                     source_detail="memories.json",
+                                    score_importance=0.8,  # mémoires explicites = haute confiance
                                 )
                                 resultat.ajoutes += 1
                 except Exception as e:
@@ -167,6 +168,7 @@ class ImporteurClaude(ImporteurBase):
                                     source="claude",
                                     embedding=embedding,
                                     source_detail=conv.source_detail,
+                                    score_importance=fait.score_confiance,
                                 )
                                 resultat.ajoutes += 1
                     except Exception as e:

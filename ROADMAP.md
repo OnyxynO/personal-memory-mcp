@@ -79,23 +79,21 @@ mmcp ui --port 9000
 - Commande : `mmcp export [--format json|csv] [--categorie X] [--sortie fichier]`
 - Validé : 339 faits exportés en JSON + CSV, filtre catégorie fonctionnel
 
-### Phase 9 — Score d'importance + FTS5 (inspiré vecRecall + rekal)
+### ✅ Phase 9 — Score d'importance + FTS5 (inspiré vecRecall + rekal)
 
-Deux améliorations orthogonales à la qualité de recherche, analysées depuis vecRecall (snowfoxHQ) et rekal (janbjorge) :
+**9a — `score_importance` dans `faits`**
+- Colonne `score_importance REAL DEFAULT 0.5` ajoutée à la table `faits`
+- Alimentée depuis `score_confiance` de `FaitExtrait` lors des imports (claude-code, claude, chatgpt)
+- Mémoires directes (`memories.json`) = 0.8 (haute confiance)
+- Migration automatique des bases existantes via `_appliquer_migrations()`
+- Incluse dans les résultats de `search()` et `list_facts`
 
-**9a — Stocker `score_importance` dans `faits`**
-- Ajouter colonne `score_importance REAL DEFAULT 0.5` à la table `faits`
-- Alimentée à l'extraction depuis `score_confiance` de `FaitExtrait` (déjà calculé, jamais persisté)
-- Mise à jour à chaque accès : fréquence + récence → score composite
-- Usage : filtrage L0 (faits haute importance toujours injectés) + tri dans `list_facts`
-
-**9b — FTS5 en fallback de recherche**
-- Ajouter `CREATE VIRTUAL TABLE faits_fts USING fts5(contenu, content='faits', content_rowid='id')`
-- Activer dans `rechercher()` si score vectoriel max < 0.50 → fallback BM25 sur contenu
-- Pattern rekal : scoring hybride `0.4×FTS5_BM25 + 0.4×cosine + 0.2×recency_decay`
-- Avantage : retrouver les faits par mots-clés exacts ("SAND", "DataMatch", nom de variable)
-
-**Ordre recommandé :** 9a d'abord (migration simple, colonne seule), puis 9b (plus de travail).
+**9b — FTS5 content table + recherche hybride**
+- `CREATE VIRTUAL TABLE faits_fts USING fts5(contenu, content='faits', content_rowid='id')`
+- Triggers auto-maintenance : insert/soft-delete → index toujours cohérent
+- `search()` : si score vectoriel max < 0.50, fallback FTS5 BM25 avec enrichissement
+- Requêtes préfixe (`"mot"*`) pour couvrir pluriels et variantes sans stemmer
+- `rechercher_fts(query)` exposé directement sur `Storage` pour usage futur
 
 ---
 

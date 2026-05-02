@@ -120,6 +120,7 @@ class ImporteurClaudeCode(ImporteurBase):
                             source="claude-code",
                             embedding=embedding,
                             source_detail=str(fichier),
+                            score_importance=fait.score_confiance,
                         )
                         resultat.ajoutes += 1
             except Exception as e:

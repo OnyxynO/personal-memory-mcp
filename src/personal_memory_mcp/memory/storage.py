@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS faits (
     source_detail             TEXT,
     date_creation             TEXT NOT NULL,
     date_derniere_utilisation TEXT,
-    actif                     INTEGER DEFAULT 1
+    actif                     INTEGER DEFAULT 1,
+    score_importance          REAL DEFAULT 0.5
 );
 
 CREATE TABLE IF NOT EXISTS imports (
@@ -34,6 +35,20 @@ CREATE TABLE IF NOT EXISTS config (
     cle    TEXT PRIMARY KEY,
     valeur TEXT NOT NULL
 );
+
+CREATE VIRTUAL TABLE IF NOT EXISTS faits_fts USING fts5(
+    contenu,
+    content='faits',
+    content_rowid='id'
+);
+
+CREATE TRIGGER IF NOT EXISTS faits_fts_ai AFTER INSERT ON faits BEGIN
+    INSERT INTO faits_fts(rowid, contenu) VALUES (new.id, new.contenu);
+END;
+
+CREATE TRIGGER IF NOT EXISTS faits_fts_ad AFTER UPDATE OF actif ON faits WHEN new.actif = 0 BEGIN
+    INSERT INTO faits_fts(faits_fts, rowid, contenu) VALUES('delete', old.id, old.contenu);
+END;
 """
 
 
@@ -75,7 +90,34 @@ class Storage:
         self._conn.enable_load_extension(False)
         self._conn.executescript(SCHEMA_SQL_BASE)
         self._conn.commit()
+        self._appliquer_migrations()
         self._dim: int = self._lire_ou_detecter_dim()
+
+    def _appliquer_migrations(self) -> None:
+        """Applique les migrations de schéma pour les bases existantes.
+
+        Appelé après executescript(SCHEMA_SQL_BASE). Ajoute les colonnes et tables
+        manquantes sur les bases créées avant cette version sans recréer les tables.
+        """
+        # M1: colonne score_importance absente des anciennes bases
+        colonnes = {r[1] for r in self._conn.execute("PRAGMA table_info(faits)").fetchall()}
+        if "score_importance" not in colonnes:
+            self._conn.execute("ALTER TABLE faits ADD COLUMN score_importance REAL DEFAULT 0.5")
+            self._conn.commit()
+
+        # M2: peupler l'index FTS5 via 'rebuild' si pas encore initialisé
+        # (le manual INSERT ne construit pas l'index pour les content tables)
+        fts_init = self._conn.execute(
+            "SELECT valeur FROM config WHERE cle = 'fts5_initialise'"
+        ).fetchone()
+        if not fts_init:
+            nb_faits = self._conn.execute("SELECT COUNT(*) FROM faits").fetchone()[0]
+            if nb_faits > 0:
+                self._conn.execute("INSERT INTO faits_fts(faits_fts) VALUES('rebuild')")
+            self._conn.execute(
+                "INSERT OR REPLACE INTO config (cle, valeur) VALUES ('fts5_initialise', '1')"
+            )
+            self._conn.commit()
 
     def _lire_ou_detecter_dim(self) -> int:
         """Lit la dimension depuis config, ou la détecte depuis faits_vec existante.
@@ -215,18 +257,20 @@ class Storage:
         source: str,
         embedding: list[float],
         source_detail: str | None = None,
+        score_importance: float = 0.5,
     ) -> int:
         """Insère un nouveau fait avec son embedding.
 
         Insère dans `faits` et `faits_vec` en transaction atomique.
-        L'embedding est encodé en blob float32[768] pour sqlite-vec.
+        L'embedding est encodé en blob float32 pour sqlite-vec.
 
         Args:
             contenu: Texte du fait (~1 phrase).
             categorie: Catégorie du fait (ex: "stack", "projet").
             source: Source du fait (ex: "claude-code", "manuel").
-            embedding: Vecteur d'embedding (768 dimensions pour nomic-embed-text).
+            embedding: Vecteur d'embedding.
             source_detail: Détail optionnel (chemin fichier, session_id, etc.).
+            score_importance: Confiance du LLM dans le fait [0.0, 1.0] (défaut: 0.5).
 
         Returns:
             ID du fait inséré (rowid).
@@ -236,10 +280,10 @@ class Storage:
         """
         curseur = self._conn.execute(
             """
-            INSERT INTO faits (contenu, categorie, source, source_detail, date_creation)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO faits (contenu, categorie, source, source_detail, date_creation, score_importance)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (contenu, categorie, source, source_detail, _maintenant()),
+            (contenu, categorie, source, source_detail, _maintenant(), score_importance),
         )
         rowid: int = curseur.lastrowid  # type: ignore[assignment]
         import struct
@@ -278,7 +322,7 @@ class Storage:
         if categorie:
             sql = """
                 SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
-                       v.distance
+                       f.score_importance, v.distance
                 FROM faits_vec v
                 JOIN faits f ON f.id = v.rowid
                 WHERE f.actif = 1 AND f.categorie = ?
@@ -290,7 +334,7 @@ class Storage:
         else:
             sql = """
                 SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
-                       v.distance
+                       f.score_importance, v.distance
                 FROM faits_vec v
                 JOIN faits f ON f.id = v.rowid
                 WHERE f.actif = 1
@@ -317,6 +361,72 @@ class Storage:
                 "categorie": r["categorie"],
                 "source": r["source"],
                 "score": round(1 - r["distance"], 4),
+                "score_importance": r["score_importance"],
+            }
+            for r in rows
+        ]
+
+    def rechercher_fts(
+        self,
+        query: str,
+        top_k: int = 5,
+        categorie: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Recherche plein-texte BM25 via FTS5 (fallback ou complément vectoriel).
+
+        Utilisé quand la recherche vectorielle retourne des scores trop faibles.
+        BM25 retourne des valeurs négatives (plus négatif = meilleur match).
+        Le score est normalisé à [0, 1] via 1/(1+|bm25|).
+
+        Args:
+            query: Texte de la requête (mots-clés, noms propres, identifiants).
+            top_k: Nombre de résultats à retourner (défaut: 5).
+            categorie: Filtre optionnel par catégorie.
+
+        Returns:
+            Liste de dicts avec clés: id, contenu, categorie, source, score, score_importance.
+            Liste vide en cas d'erreur FTS5 (query malformée, etc.).
+        """
+        # Préfixe FTS5 ("mot"*) : couvre pluriels et variantes sans stemmer
+        mots = [m.replace('"', '').rstrip('*') for m in query.split() if m.strip()]
+        if not mots:
+            return []
+        requete_fts = " ".join(f'"{m}"*' for m in mots)
+
+        try:
+            if categorie:
+                sql = """
+                    SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
+                           f.score_importance, bm25(faits_fts) AS bm25_score
+                    FROM faits_fts
+                    JOIN faits f ON f.id = faits_fts.rowid
+                    WHERE faits_fts MATCH ? AND f.actif = 1 AND f.categorie = ?
+                    ORDER BY bm25_score
+                    LIMIT ?
+                """
+                rows = self._conn.execute(sql, (requete_fts, categorie, top_k)).fetchall()
+            else:
+                sql = """
+                    SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
+                           f.score_importance, bm25(faits_fts) AS bm25_score
+                    FROM faits_fts
+                    JOIN faits f ON f.id = faits_fts.rowid
+                    WHERE faits_fts MATCH ? AND f.actif = 1
+                    ORDER BY bm25_score
+                    LIMIT ?
+                """
+                rows = self._conn.execute(sql, (requete_fts, top_k)).fetchall()
+        except Exception:
+            return []
+
+        return [
+            {
+                "id": r["id"],
+                "contenu": r["contenu"],
+                "categorie": r["categorie"],
+                "source": r["source"],
+                "score": round(1.0 / (1.0 + abs(r["bm25_score"])), 4),
+                "score_importance": r["score_importance"],
             }
             for r in rows
         ]
@@ -384,14 +494,14 @@ class Storage:
         """
         if categorie:
             sql = """
-                SELECT id, contenu, categorie, source, date_creation
+                SELECT id, contenu, categorie, source, source_detail, date_creation, score_importance
                 FROM faits WHERE actif = 1 AND categorie = ?
                 ORDER BY id DESC LIMIT ? OFFSET ?
             """
             rows = self._conn.execute(sql, (categorie, limite, offset)).fetchall()
         else:
             sql = """
-                SELECT id, contenu, categorie, source, date_creation
+                SELECT id, contenu, categorie, source, source_detail, date_creation, score_importance
                 FROM faits WHERE actif = 1
                 ORDER BY id DESC LIMIT ? OFFSET ?
             """

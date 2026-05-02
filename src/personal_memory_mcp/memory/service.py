@@ -76,11 +76,11 @@ class MemoryService:
         top_k: int = 5,
         categorie: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Recherche sémantique dans la mémoire.
+        """Recherche hybride (vectorielle + FTS5 fallback) dans la mémoire.
 
-        Calcule l'embedding de la requête et retourne les faits les plus proches
-        par similarité cosinus. Met à jour date_derniere_utilisation des faits
-        retournés (utilisé pour l'expiration).
+        Calcule l'embedding de la requête pour la recherche vectorielle.
+        Si le meilleur score cosinus est < 0.50 (requête par mots-clés exacts,
+        noms propres, identifiants), enrichit les résultats via FTS5 BM25.
 
         Args:
             query: Texte de la requête en langage naturel.
@@ -88,11 +88,24 @@ class MemoryService:
             categorie: Filtre optionnel par catégorie (si None, tous les faits).
 
         Returns:
-            Liste de dicts avec clés: id, contenu, categorie, source, score.
+            Liste de dicts avec clés: id, contenu, categorie, source, score, score_importance.
         """
         [embedding] = self._extracteur.embeddings([query])
         self._assurer_vecteurs_init(embedding)
-        return self._storage.rechercher(embedding, top_k=top_k, categorie=categorie)
+        resultats = self._storage.rechercher(embedding, top_k=top_k, categorie=categorie)
+
+        # Fallback FTS5 si la recherche vectorielle est peu convaincante
+        score_max = max((r["score"] for r in resultats), default=0.0)
+        if score_max < 0.50:
+            resultats_fts = self._storage.rechercher_fts(query, top_k=top_k, categorie=categorie)
+            ids_existants = {r["id"] for r in resultats}
+            for r in resultats_fts:
+                if r["id"] not in ids_existants:
+                    resultats.append(r)
+            resultats.sort(key=lambda r: r["score"], reverse=True)
+            resultats = resultats[:top_k]
+
+        return resultats
 
     def add(
         self,
