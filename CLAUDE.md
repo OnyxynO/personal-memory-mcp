@@ -124,7 +124,7 @@ Le serveur MCP est enregistré en **scope `user`** dans `~/.claude.json` — dis
 "personal-memory": {
   "type": "stdio",
   "command": "uv",
-  "args": ["run", "--project", "/Users/seb/Documents/Claude projet/personal-memory", "mmcp", "serve"]
+  "args": ["run", "--project", "/Users/seb/Documents/Claude projet/projets/personal-memory", "mmcp", "serve"]
 }
 ```
 

@@ -1,11 +1,19 @@
 """MemoryService — couche métier centrale."""
 
+import unicodedata
 from pathlib import Path
 from typing import Any
 
 from personal_memory_mcp.extraction.ollama import ExtracteurOllama
 from personal_memory_mcp.memory.deduplication import est_doublon, SEUIL_PAR_DEFAUT
 from personal_memory_mcp.memory.storage import Storage
+
+
+def _normaliser_categorie(categorie: str) -> str:
+    """Normalise une catégorie : minuscules + suppression des accents."""
+    sans_accent = unicodedata.normalize("NFD", categorie)
+    sans_accent = "".join(c for c in sans_accent if unicodedata.category(c) != "Mn")
+    return sans_accent.lower().strip()
 
 
 def _chemin_db_defaut() -> Path:
@@ -132,6 +140,7 @@ class MemoryService:
         Raises:
             ValueError: Si l'embedding ne peut pas être calculé (Ollama indisponible).
         """
+        categorie = _normaliser_categorie(categorie)
         [embedding] = self._extracteur.embeddings([contenu])
         self._assurer_vecteurs_init(embedding)
         if est_doublon(embedding, self._storage, self._seuil):
