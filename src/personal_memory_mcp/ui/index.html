@@ -104,7 +104,6 @@ let tous = [];
 let filtres = [];
 let catActive = null;
 let page = 1;
-let triActif = 'date_desc';
 
 async function charger() {
   const r = await fetch('/api/faits');
@@ -156,10 +155,11 @@ function filtrer() {
 }
 
 function trier() {
+  const tri = document.getElementById('tri').value;
   filtres.sort((a, b) => {
-    if (triActif === 'date_asc') return a.date_creation.localeCompare(b.date_creation);
-    if (triActif === 'cat_asc') return a.categorie.localeCompare(b.categorie) || b.date_creation.localeCompare(a.date_creation);
-    return b.date_creation.localeCompare(a.date_creation); // date_desc par défaut
+    if (tri === 'date_asc') return a.date_creation.localeCompare(b.date_creation);
+    if (tri === 'cat_asc') return a.categorie.localeCompare(b.categorie) || b.date_creation.localeCompare(a.date_creation);
+    return b.date_creation.localeCompare(a.date_creation);
   });
 }
 
@@ -235,7 +235,7 @@ async function supprimer(id) {
 }
 
 document.getElementById('search').addEventListener('input', () => { page = 1; filtrer(); });
-document.getElementById('tri').addEventListener('change', e => { triActif = e.target.value; page = 1; filtrer(); });
+document.getElementById('tri').addEventListener('change', () => { page = 1; filtrer(); });
 document.getElementById('prev').addEventListener('click', () => { page--; render(); });
 document.getElementById('next').addEventListener('click', () => { page++; render(); });
 
