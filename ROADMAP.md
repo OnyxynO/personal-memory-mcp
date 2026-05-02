@@ -97,6 +97,32 @@ mmcp ui --port 9000
 
 ---
 
+## Phase 10 — Tests de charge sur session isolée
+
+Valider le comportement du système sous volume important de faits, sur une base séparée
+(sauvegarde préalable obligatoire) pour ne pas polluer les données réelles.
+
+**Protocole :**
+
+1. **Backup** — `mmcp backup` avant de commencer, restauration garantie à la fin
+2. **Corpus lourd** — récupérer la documentation complète de Git (pro.git book, ~500 pages)
+   et l'injecter via `mmcp import` ou `add()` en masse → objectif : +500 faits minimum
+3. **Corpus texte libre** — intégrer un texte long du domaine public (ex : Jules Verne,
+   nouvelle de plusieurs dizaines de pages) pour tester l'extraction sur du contenu non-technique
+4. **Tests de charge :**
+   - Temps de réponse `search()` selon le volume (100, 500, 1000+ faits)
+   - Temps `list_facts` avec pagination sur grand volume
+   - Temps de construction index FTS5 + qualité du fallback BM25 sur contenu littéraire
+   - Consommation mémoire SQLite + sqlite-vec à grande échelle
+   - Détection de dégradation de la déduplication vectorielle avec beaucoup de voisins proches
+
+**Critère de validation :** `search()` < 500ms à 1000 faits, FTS5 fallback pertinent sur
+mots-clés techniques extraits du corpus Git.
+
+**Post-test :** `mmcp restore` pour revenir à l'état nominal.
+
+---
+
 ## Long terme — Idées non planifiées
 
 - UI web FastAPI légère (visualisation + édition de la base)
