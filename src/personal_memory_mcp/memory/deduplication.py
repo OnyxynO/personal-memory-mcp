@@ -15,6 +15,7 @@ def est_doublon(
     voisins = storage.voisins_proches(embedding, top_k=3)
     if not voisins:
         return False
-    # distance L2 sqlite-vec → similarité cosinus approximative : 1 - distance
+    # faits_vec utilise distance_metric=cosine → distance = 1 - cosine_sim
+    # donc cosine_sim = 1 - distance, le seuil s'applique directement
     distance_min = min(d for _, d in voisins)
     return (1 - distance_min) >= seuil

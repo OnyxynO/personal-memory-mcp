@@ -132,7 +132,7 @@ class Storage:
         )
         self._conn.commit()
         self._conn.executescript(
-            f"CREATE VIRTUAL TABLE IF NOT EXISTS faits_vec USING vec0(embedding FLOAT[{dim}]);"
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS faits_vec USING vec0(embedding FLOAT[{dim}] distance_metric=cosine);"
         )
         self._conn.commit()
 
@@ -159,7 +159,7 @@ class Storage:
             )
         self._conn.commit()
         self._conn.executescript(
-            f"CREATE VIRTUAL TABLE faits_vec USING vec0(embedding FLOAT[{nouvelle_dim}]);"
+            f"CREATE VIRTUAL TABLE faits_vec USING vec0(embedding FLOAT[{nouvelle_dim}] distance_metric=cosine);"
         )
         self._conn.commit()
         self._dim = nouvelle_dim
