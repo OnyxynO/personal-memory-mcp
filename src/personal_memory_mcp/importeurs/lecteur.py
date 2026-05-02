@@ -5,8 +5,11 @@ des conversations à l'IA cliente, qui décide elle-même quoi mémoriser.
 """
 
 import json
+import logging
 import zipfile
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 CHEMIN_DEFAUT_CLAUDE_CODE = Path.home() / ".claude" / "projects"
 MIN_MOTS = 10
@@ -52,7 +55,8 @@ def _lire_jsonl(chemin: Path) -> str | None:
                     continue
                 label = "Utilisateur" if role == "user" else "Assistant"
                 lignes_conv.append(f"{label}: {texte[:1000]}")
-    except OSError:
+    except OSError as e:
+        logger.warning("Impossible de lire %s : %s", chemin, e)
         return None
 
     if not lignes_conv:

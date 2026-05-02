@@ -32,7 +32,7 @@ Frictions identifiées :
 
 - ✅ **Pagination `list_facts`** — `page` + `taille_page`, retourne dict `{faits, page, total_pages, total}`. CLI `mmcp list --page N`.
 - ✅ **Tests d'intégration MCP** — `test_integration_mcp.py` : 5 tests MCP directs + 2 tests haiku (skippés sans `ANTHROPIC_API_KEY`).
-- [ ] **Journalisation `OSError` dans `_lire_jsonl`** — actuellement silencieux, difficile à diagnostiquer en cas de problème de permissions sur un fichier JSONL
+- ✅ **Journalisation `OSError` dans `_lire_jsonl`** — `logger.warning` avec chemin + message d'erreur
 - [ ] **Publication PyPI** — `personal-memory-mcp` est déjà configuré dans `pyproject.toml`
 
 ---
