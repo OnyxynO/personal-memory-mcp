@@ -41,6 +41,7 @@ de conversations IA et les expose à tous les clients MCP compatibles.
 - `PROMPT_EXTRACTION` contient des accolades JSON — doubler `{{` / `}}` si `.format()` est utilisé, sinon `KeyError` systématique
 - `ServiceMock` dans les tests doit hériter de `MemoryService` (pas juste duck-type) pour satisfaire Pyright sur les annotations `"MemoryService"` dans les importeurs
 - **haiku enveloppe JSON dans backticks** : `json.loads()` échoue silencieusement — stripper avant parsing : `re.sub(r"^```[a-z]*\n?", "", brut).rstrip("`").strip()`. Même famille que le filtre `<think>` de qwen3.
+- **sqlite-vec distance L2 vs cosinus** : par défaut `vec0` utilise la distance L2. Pour des vecteurs normalisés, `1 - L2_distance` ≠ cosine_sim (score erroné ~0.03 au lieu de ~0.53). Toujours créer la table avec `distance_metric=cosine` : `CREATE VIRTUAL TABLE faits_vec USING vec0(embedding FLOAT[dim] distance_metric=cosine)`. Avec ce mode, `distance = 1 - cosine_sim` donc `score = 1 - distance` est correct.
 
 ## Tests
 
@@ -66,6 +67,7 @@ uv run pytest -v            # avec détail par test
 - ✅ `mmcp migrate-embeddings` — migration entre modèles + dimensions dynamiques
 - ✅ Pagination `list_facts` — `page` + `taille_page`, dict `{faits, page, total_pages, total}`
 - ✅ Suite de tests automatisés (54 tests : 52 sans réseau + 2 intégration haiku)
+- ✅ Modèle embedding migré vers `qwen3-embedding:0.6b` (1024 dims) + fix `distance_metric=cosine`
 
 ## LSP
 
