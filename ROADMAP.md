@@ -73,10 +73,11 @@ mmcp ui --port 9000
 
 **Critère de validation :** `mmcp ui` ouvre le navigateur, affiche les 176 faits, filtre et suppression fonctionnels.
 
-### Phase 8 — `mmcp export`
+### ✅ Phase 8 — `mmcp export`
 - Backup des faits en JSON ou CSV
 - Usage : migration, sauvegarde avant `mmcp clean`, partage entre machines
-- Commande : `mmcp export [--format json|csv] [--categorie X]`
+- Commande : `mmcp export [--format json|csv] [--categorie X] [--sortie fichier]`
+- Validé : 339 faits exportés en JSON + CSV, filtre catégorie fonctionnel
 
 ### Phase 9 — Score d'importance + FTS5 (inspiré vecRecall + rekal)
 

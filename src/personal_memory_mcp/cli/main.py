@@ -374,6 +374,44 @@ def migrate_embeddings(
 
 
 @app.command()
+def export(
+    format: str = typer.Option("json", "--format", "-f", help="Format de sortie : json ou csv"),
+    categorie: Annotated[Optional[str], typer.Option("--categorie", "-c")] = None,
+    sortie: Annotated[Optional[str], typer.Option("--sortie", "-o", help="Fichier de destination (stdout si absent)")] = None,
+):
+    """Exporte les faits en JSON ou CSV (stdout ou fichier)."""
+    import csv
+    import io
+    import json as json_mod
+
+    svc = _service()
+    stats = svc._storage.compter()
+    total = stats["total"]
+    faits = svc._storage.lister(categorie=categorie, limite=total or 1000)
+
+    if format == "csv":
+        buffer = io.StringIO()
+        champs = ["id", "contenu", "categorie", "source", "source_detail", "date_creation"]
+        writer = csv.DictWriter(buffer, fieldnames=champs, extrasaction="ignore", lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(faits)
+        contenu = buffer.getvalue()
+    elif format == "json":
+        contenu = json_mod.dumps(faits, ensure_ascii=False, indent=2)
+    else:
+        console.print(f"[red]Format inconnu : '{format}'. Valeurs valides : json, csv[/red]")
+        raise typer.Exit(1)
+
+    if sortie:
+        chemin = Path(sortie).expanduser()
+        chemin.write_text(contenu, encoding="utf-8")
+        filtre = f" (catégorie : {categorie})" if categorie else ""
+        console.print(f"\n[green]✓ {len(faits)} faits exportés[/green]{filtre} → [bold]{chemin}[/bold]\n")
+    else:
+        print(contenu)
+
+
+@app.command()
 def ui(
     port: int = typer.Option(8766, "--port", "-p", help="Port HTTP local"),
 ):
