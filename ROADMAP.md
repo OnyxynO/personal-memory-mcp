@@ -44,7 +44,7 @@ Frictions identifiées :
 - `ImporteurChatGPT` implémenté + `source="chatgpt"` dans `import_conversations`
 - Validé en conditions réelles : 36 conversations → 39 faits extraits via Mode B (agent haiku)
 
-### Phase 7 — `mmcp ui` (interface web locale)
+### ✅ Phase 7 — `mmcp ui` (interface web locale)
 
 Commande CLI qui lance un mini-serveur HTTP indépendant du serveur MCP :
 

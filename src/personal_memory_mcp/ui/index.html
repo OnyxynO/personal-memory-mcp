@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Personal Memory</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #222; }
+
+  header {
+    background: #1a1a2e; color: #fff; padding: 1rem 1.5rem;
+    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.1rem; font-weight: 600; flex: 0 0 auto; }
+  #total { font-size: 0.85rem; color: #aaa; }
+
+  #search-wrap { flex: 1 1 200px; }
+  #search {
+    width: 100%; padding: 0.4rem 0.75rem; border-radius: 6px;
+    border: none; font-size: 0.9rem; background: #2e2e4e; color: #fff;
+    outline: none;
+  }
+  #search::placeholder { color: #888; }
+
+  #categories {
+    background: #fff; border-bottom: 1px solid #e0e0e0;
+    padding: 0.6rem 1.5rem; display: flex; gap: 0.4rem; flex-wrap: wrap;
+  }
+  .badge {
+    padding: 0.25rem 0.65rem; border-radius: 99px; font-size: 0.78rem;
+    cursor: pointer; border: 1px solid #ddd; background: #f0f0f0;
+    user-select: none; transition: background 0.15s;
+  }
+  .badge:hover { background: #e0e0e0; }
+  .badge.active { background: #1a1a2e; color: #fff; border-color: #1a1a2e; }
+
+  #pagination {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.6rem 1.5rem; background: #fff; border-bottom: 1px solid #e0e0e0;
+    font-size: 0.85rem;
+  }
+  #pagination button {
+    padding: 0.2rem 0.6rem; border-radius: 4px; border: 1px solid #ccc;
+    background: #fff; cursor: pointer;
+  }
+  #pagination button:disabled { opacity: 0.4; cursor: default; }
+  #page-info { color: #666; }
+
+  #liste { padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; }
+
+  .fait {
+    background: #fff; border-radius: 8px; padding: 0.75rem 1rem;
+    border: 1px solid #e8e8e8; display: flex; align-items: flex-start; gap: 0.75rem;
+  }
+  .fait-body { flex: 1; min-width: 0; }
+  .fait-meta { font-size: 0.75rem; color: #888; margin-top: 0.3rem; }
+  .cat {
+    display: inline-block; font-size: 0.72rem; padding: 0.1rem 0.5rem;
+    border-radius: 99px; background: #eef; color: #446; margin-right: 0.4rem;
+    border: 1px solid #dde;
+  }
+  .fait-contenu { font-size: 0.9rem; line-height: 1.5; }
+  .btn-del {
+    flex: 0 0 auto; background: none; border: none; cursor: pointer;
+    color: #bbb; font-size: 1rem; padding: 0.1rem 0.3rem; border-radius: 4px;
+    transition: color 0.15s;
+  }
+  .btn-del:hover { color: #e55; }
+  #vide { text-align: center; color: #999; padding: 3rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Personal Memory</h1>
+  <span id="total"></span>
+  <div id="search-wrap">
+    <input id="search" type="search" placeholder="Rechercher…" autocomplete="off">
+  </div>
+</header>
+
+<div id="categories"></div>
+<div id="pagination" style="display:none">
+  <button id="prev">&#8592;</button>
+  <span id="page-info"></span>
+  <button id="next">&#8594;</button>
+</div>
+<div id="liste"></div>
+
+<script>
+const PAR_PAGE = 25;
+let tous = [];
+let filtres = [];
+let catActive = null;
+let page = 1;
+
+async function charger() {
+  const r = await fetch('/api/faits');
+  const d = await r.json();
+  tous = d.faits;
+  renderCategories(d.par_categorie);
+  filtrer();
+}
+
+function renderCategories(parCat) {
+  const el = document.getElementById('categories');
+  el.textContent = '';
+
+  const tout = creerBadge('Tous (' + tous.length + ')', null);
+  tout.classList.add('active');
+  el.appendChild(tout);
+
+  for (const [cat, n] of Object.entries(parCat)) {
+    el.appendChild(creerBadge(cat + ' (' + n + ')', cat));
+  }
+}
+
+function creerBadge(label, cat) {
+  const b = document.createElement('span');
+  b.className = 'badge';
+  b.textContent = label;
+  if (cat) b.dataset.cat = cat;
+  b.addEventListener('click', () => { catActive = cat; page = 1; majBadges(); filtrer(); });
+  return b;
+}
+
+function majBadges() {
+  document.querySelectorAll('.badge').forEach(b => {
+    b.classList.toggle('active', b.dataset.cat === catActive || (!b.dataset.cat && !catActive));
+  });
+}
+
+function filtrer() {
+  const q = document.getElementById('search').value.toLowerCase();
+  filtres = tous.filter(f => {
+    if (catActive && f.categorie !== catActive) return false;
+    if (q && !f.contenu.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const n = filtres.length;
+  document.getElementById('total').textContent = n + ' fait' + (n !== 1 ? 's' : '');
+  render();
+}
+
+function render() {
+  const total = filtres.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAR_PAGE));
+  if (page > totalPages) page = totalPages;
+  const debut = (page - 1) * PAR_PAGE;
+  const tranche = filtres.slice(debut, debut + PAR_PAGE);
+
+  const pag = document.getElementById('pagination');
+  pag.style.display = totalPages > 1 ? 'flex' : 'none';
+  document.getElementById('page-info').textContent = 'Page ' + page + ' / ' + totalPages;
+  document.getElementById('prev').disabled = page <= 1;
+  document.getElementById('next').disabled = page >= totalPages;
+
+  const liste = document.getElementById('liste');
+  liste.textContent = '';
+
+  if (!tranche.length) {
+    const vide = document.createElement('div');
+    vide.id = 'vide';
+    vide.textContent = 'Aucun fait trouvé.';
+    liste.appendChild(vide);
+    return;
+  }
+
+  tranche.forEach(f => liste.appendChild(creerFait(f)));
+}
+
+function creerFait(f) {
+  const div = document.createElement('div');
+  div.className = 'fait';
+  div.dataset.id = f.id;
+
+  const body = document.createElement('div');
+  body.className = 'fait-body';
+
+  const contenu = document.createElement('div');
+  contenu.className = 'fait-contenu';
+  contenu.textContent = f.contenu;
+
+  const meta = document.createElement('div');
+  meta.className = 'fait-meta';
+
+  const cat = document.createElement('span');
+  cat.className = 'cat';
+  cat.textContent = f.categorie;
+
+  const infos = document.createTextNode(' ' + f.source + ' · ' + f.date_creation.slice(0, 10));
+
+  meta.appendChild(cat);
+  meta.appendChild(infos);
+  body.appendChild(contenu);
+  body.appendChild(meta);
+
+  const btn = document.createElement('button');
+  btn.className = 'btn-del';
+  btn.title = 'Supprimer';
+  btn.textContent = '✕';
+  btn.addEventListener('click', () => supprimer(f.id));
+
+  div.appendChild(body);
+  div.appendChild(btn);
+  return div;
+}
+
+async function supprimer(id) {
+  if (!confirm('Supprimer ce fait ?')) return;
+  await fetch('/api/faits/' + id, { method: 'DELETE' });
+  tous = tous.filter(f => f.id !== id);
+  filtrer();
+}
+
+document.getElementById('search').addEventListener('input', () => { page = 1; filtrer(); });
+document.getElementById('prev').addEventListener('click', () => { page--; render(); });
+document.getElementById('next').addEventListener('click', () => { page++; render(); });
+
+charger();
+</script>
+</body>
+</html>

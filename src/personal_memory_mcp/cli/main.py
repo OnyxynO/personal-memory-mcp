@@ -374,6 +374,15 @@ def migrate_embeddings(
 
 
 @app.command()
+def ui(
+    port: int = typer.Option(8766, "--port", "-p", help="Port HTTP local"),
+):
+    """Lance l'interface web locale pour visualiser et gérer les faits."""
+    from personal_memory_mcp.ui.serveur import lancer
+    lancer(port=port)
+
+
+@app.command()
 def clean():
     """Supprime les faits expirés (jamais utilisés ou > 12 mois sans utilisation)."""
     from datetime import datetime, timezone, timedelta
