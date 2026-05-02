@@ -16,8 +16,8 @@ de conversations IA et les expose à tous les clients MCP compatibles.
 
 - Python 3.13 + uv
 - MCP SDK officiel Anthropic (`mcp`)
-- sqlite-vec (stockage vectoriel)
-- Ollama : `nomic-embed-text` (embeddings) + `qwen3:1.7b` (extraction faits)
+- sqlite-vec (stockage vectoriel + FTS5)
+- Ollama : `qwen3-embedding:0.6b` (embeddings, 1024 dims) + `qwen3:1.7b` (extraction faits)
 - typer + rich (CLI)
 
 ## Specs
@@ -46,7 +46,7 @@ de conversations IA et les expose à tous les clients MCP compatibles.
 ## Tests
 
 ```bash
-uv run pytest               # 52 tests, ~0.25s, sans Ollama ni réseau
+uv run pytest               # 73 tests, ~11s, sans Ollama ni réseau
 uv run pytest -v            # avec détail par test
 ```
 
@@ -54,8 +54,11 @@ uv run pytest -v            # avec détail par test
 - `tests/test_extraction.py` — filtrage `<think>`, batch embeddings, httpx mocké
 - `tests/test_importeurs.py` — ImporteurClaudeCode + ImporteurClaude, ExtracteurMock
 - `tests/test_lecteur.py` — parsing pur JSONL et ZIP, pagination, filtrage
+- `tests/test_ui_serveur.py` — 15 tests HTTP serveur UI (GET, DELETE, routes)
+- `tests/test_ui_navigation.py` — 6 tests Playwright browser (skippés sans playwright)
+- `tests/test_integration_mcp.py` — 5 tests MCP + 2 haiku (skippés sans `ANTHROPIC_API_KEY`)
 
-## État MVP (avril 2026)
+## État (mai 2026)
 
 - ✅ Phase 1 — Serveur MCP (search, add, list, delete, import_source)
 - ✅ Phase 2 — Import Claude Code (JSONL)
@@ -63,11 +66,13 @@ uv run pytest -v            # avec détail par test
 - ✅ Phase 4 — Import Claude ZIP (memories.json + conversations.json)
 - ✅ Phase 5 — Outil `import_conversations` (lecteur.py, parsing pur, pagination)
 - ✅ Phase 6 — Import ChatGPT ZIP (ImporteurChatGPT, source="chatgpt")
+- ✅ Phase 7 — `mmcp ui` (interface web locale, HTML/JS vanilla, zéro dépendance)
+- ✅ Phase 8 — `mmcp export` (JSON/CSV, filtre catégorie, sortie fichier)
+- ✅ Phase 9 — `score_importance` + FTS5 hybride (recherche vectorielle + BM25 fallback)
 - ✅ `mmcp backup` / `mmcp restore` — sauvegarde/restauration DB SQLite
 - ✅ `mmcp migrate-embeddings` — migration entre modèles + dimensions dynamiques
-- ✅ Pagination `list_facts` — `page` + `taille_page`, dict `{faits, page, total_pages, total}`
-- ✅ Suite de tests automatisés (54 tests : 52 sans réseau + 2 intégration haiku)
-- ✅ Modèle embedding migré vers `qwen3-embedding:0.6b` (1024 dims) + fix `distance_metric=cosine`
+- ✅ Modèle embedding : `qwen3-embedding:0.6b` (1024 dims) + `distance_metric=cosine`
+- ✅ Suite de tests : 73 tests (71 sans réseau + 2 intégration haiku)
 
 ## LSP
 
@@ -101,7 +106,7 @@ Basées sur les patterns de `badlogic/pi-mono` et `theodo-group/debug-that`, ada
 - Fournir un fichier fixture pour tout test d'importation
 
 ### Tests
-- Lancer `uv run pytest` après chaque changement — les 41 tests doivent passer
+- Lancer `uv run pytest` après chaque changement — les 73 tests doivent passer
 - Ajouter des tests si vous créez une nouvelle méthode publique
 - Test coverage n'est pas un objectif rigide, mais chercher à couvrir les chemins critiques
 
@@ -131,9 +136,13 @@ Pour modifier le scope : `claude mcp remove personal-memory` puis `claude mcp ad
 
 ```bash
 uv run mmcp serve          # Lance le serveur MCP
+uv run mmcp ui             # Interface web locale http://localhost:8766
 uv run mmcp import claude-code
 uv run mmcp import claude ~/Downloads/export.zip
 uv run mmcp import chatgpt ~/Downloads/export.zip
+uv run mmcp export                               # JSON vers stdout
+uv run mmcp export --format csv --sortie faits.csv
+uv run mmcp export --format json --categorie stack
 uv run mmcp backup         # Sauvegarde vers ~/.personal-memory/backups/
 uv run mmcp restore        # Restaure depuis une sauvegarde
 uv run mmcp migrate-embeddings --modele qwen3-embedding:0.6b

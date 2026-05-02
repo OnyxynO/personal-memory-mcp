@@ -12,7 +12,7 @@
 | Gestionnaire paquets | uv | Standard Python moderne |
 | Serveur MCP | `mcp` SDK officiel Anthropic | Standard, maintenance assurée |
 | Stockage vectoriel | `sqlite-vec` | Zéro service, stack validée DataMatch |
-| Embeddings | Ollama `nomic-embed-text` | Local, configurable |
+| Embeddings | Ollama `qwen3-embedding:0.6b` (1024 dims) | Local, normalisé, cosine distance |
 | Extraction de faits | Ollama `qwen3:1.7b` | Local, validé DataMatch |
 | CLI | `typer` + `rich` | Autocomplétion, progress bars, tableaux |
 
@@ -46,7 +46,8 @@ CREATE TABLE faits (
     source_detail             TEXT,             -- chemin fichier ou session_id
     date_creation             TEXT NOT NULL,    -- ISO 8601
     date_derniere_utilisation TEXT,             -- NULL si jamais utilisé via MCP
-    actif                     INTEGER DEFAULT 1 -- 0 = expiré (soft delete)
+    actif                     INTEGER DEFAULT 1, -- 0 = expiré (soft delete)
+    score_importance          REAL DEFAULT 0.5  -- score_confiance du LLM [0, 1]
 );
 ```
 
@@ -65,15 +66,39 @@ CREATE TABLE imports (
 );
 ```
 
+### Table `config`
+
+```sql
+CREATE TABLE config (
+    cle    TEXT PRIMARY KEY,
+    valeur TEXT NOT NULL
+);
+-- Clés utilisées : dim_embeddings, modele_embeddings, fts5_initialise
+```
+
 ### Table virtuelle sqlite-vec
 
 ```sql
 CREATE VIRTUAL TABLE faits_vec USING vec0(
-    embedding FLOAT[768]    -- dimension nomic-embed-text
+    embedding FLOAT[1024] distance_metric=cosine  -- qwen3-embedding:0.6b
 );
 ```
 
 La jointure `faits.id = faits_vec.rowid` lie les deux tables.
+
+### Table virtuelle FTS5
+
+```sql
+CREATE VIRTUAL TABLE faits_fts USING fts5(
+    contenu,
+    content='faits',    -- content table : stockage dans faits, pas dans FTS5
+    content_rowid='id'
+);
+-- Triggers auto-maintenance : faits_fts_ai (INSERT) + faits_fts_ad (soft delete)
+-- Rebuild automatique au premier démarrage via config 'fts5_initialise'
+```
+
+Utilisée en fallback BM25 dans `search()` quand le score vectoriel max < 0.50.
 
 ---
 
@@ -134,9 +159,15 @@ personal-memory/
         ├── importeurs/
         │   ├── __init__.py
         │   ├── base.py                  # ImporteurBase (ABC) + dataclasses
-        │   ├── claude_code.py           # ImporteurClaudeCode — MVP phase 1
-        │   ├── claude.py                # ImporteurClaude (ZIP) — MVP phase 2
-        │   └── lecteur.py               # Parsing pur sans LLM — phase 5
+        │   ├── claude_code.py           # ImporteurClaudeCode
+        │   ├── claude.py                # ImporteurClaude (ZIP)
+        │   ├── openai.py                # ImporteurOpenAI (ChatGPT ZIP)
+        │   └── lecteur.py               # Parsing pur sans LLM — import_conversations
+        │
+        ├── ui/
+        │   ├── __init__.py
+        │   ├── serveur.py               # Serveur HTTP Python pur (http.server)
+        │   └── index.html               # Frontend HTML/JS vanilla (zéro npm)
         │
         └── setup/
             ├── __init__.py
@@ -148,10 +179,15 @@ personal-memory/
 tests/
 ├── fixtures/
 │   ├── claude_code_sample.jsonl
-│   └── claude_memories_sample.json    # extrait anonymisé
-├── test_importeurs.py
+│   └── claude_memories_sample.json
+├── conftest_ui.py              # helpers partagés : ServeurContexte, inserer_fait
+├── test_deduplication.py
 ├── test_extraction.py
-└── test_deduplication.py
+├── test_importeurs.py
+├── test_integration_mcp.py     # tests MCP directs + haiku (skippés sans API key)
+├── test_lecteur.py
+├── test_ui_navigation.py       # Playwright browser (skippés sans playwright)
+└── test_ui_serveur.py          # HTTP tests serveur UI
 ```
 
 ---
@@ -212,7 +248,8 @@ def search(
     top_k: int = 5,
     categorie: str | None = None
 ) -> list[dict]:
-    # [{"id", "contenu", "categorie", "source", "score"}]
+    # [{"id", "contenu", "categorie", "source", "score", "score_importance"}]
+    # Recherche hybride : vectoriel (cosine) + FTS5 BM25 si score_max < 0.50
 
 @tool
 def add(
@@ -225,9 +262,10 @@ def add(
 @tool
 def list(
     categorie: str | None = None,
-    limite: int = 50
-) -> list[dict]:
-    # [{"id", "contenu", "categorie", "source", "date_creation"}]
+    page: int = 1,
+    taille_page: int = 20
+) -> dict:
+    # {"faits": [...], "page": int, "total_pages": int, "total": int}
 
 @tool
 def import_source(
@@ -409,7 +447,15 @@ Format connu, référence : sessions existantes dans le workspace.
 
 ### Export ChatGPT
 
-Format à documenter quand export disponible.
+Format ZIP officiel OpenAI :
+```
+data-YYYY-MM-DD-HH-MM-SS.zip
+└── conversations.json   → liste de conversations (format mapping)
+```
+
+Structure d'une conversation : graphe `mapping` (parent/enfant), `current_node` pour
+reconstituer l'ordre des messages. Chaque nœud a `content.parts[]` (liste de strings).
+Filtre : `weight == 0` → branches alternatives, ignorées.
 
 ---
 

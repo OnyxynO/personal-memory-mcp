@@ -297,7 +297,7 @@ Un fait = une phrase courte (~1 ligne), autonome et compréhensible hors context
 |---|---|---|---|
 | Claude Code | `mmcp import claude-code` | JSONL auto-détecté | 1 — MVP |
 | Claude | `mmcp import claude <zip>` | ZIP officiel | 2 — MVP |
-| ChatGPT | `mmcp import chatgpt <zip>` | ZIP officiel (format à documenter) | 3 — post-MVP |
+| ChatGPT | `mmcp import chatgpt <zip>` | ZIP officiel (mapping + current_node) | 3 — ✅ livré |
 
 ---
 
@@ -335,11 +335,24 @@ Exposition via outil MCP `import_conversations` avec pagination.
 
 **Critère de validation :** une IA cliente peut parcourir toutes les pages de conversations et mémoriser des faits via `add()` sans passer par `import_source`.
 
-### Hors MVP
-- Import ChatGPT (format à documenter)
-- UI web FastAPI légère
-- `mmcp export` (backup)
+### Phase 6 — Import ChatGPT ✅
+`mmcp import chatgpt <zip>` — format ZIP OpenAI, graphe de messages, source="chatgpt".
+
+### Phase 7 — `mmcp ui` ✅
+Interface web locale (HTML/JS vanilla, zéro npm). Tri, filtre catégorie, recherche texte,
+suppression. Serveur HTTP Python pur sur port 8766. Ouvre le navigateur automatiquement.
+
+### Phase 8 — `mmcp export` ✅
+Export JSON ou CSV des faits. Options `--format`, `--categorie`, `--sortie`.
+
+### Phase 9 — score_importance + FTS5 ✅
+Colonne `score_importance` depuis `score_confiance` LLM. Table FTS5 pour fallback BM25
+quand le score vectoriel max < 0.50 (mots-clés exacts, noms propres, identifiants).
+
+### Hors scope actuel
+- Publication PyPI (`personal-memory-mcp`)
 - Support Obsidian / markdown
+- Synchronisation multi-machines
 
 ---
 
