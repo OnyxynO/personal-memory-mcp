@@ -78,6 +78,24 @@ mmcp ui --port 9000
 - Usage : migration, sauvegarde avant `mmcp clean`, partage entre machines
 - Commande : `mmcp export [--format json|csv] [--categorie X]`
 
+### Phase 9 — Score d'importance + FTS5 (inspiré vecRecall + rekal)
+
+Deux améliorations orthogonales à la qualité de recherche, analysées depuis vecRecall (snowfoxHQ) et rekal (janbjorge) :
+
+**9a — Stocker `score_importance` dans `faits`**
+- Ajouter colonne `score_importance REAL DEFAULT 0.5` à la table `faits`
+- Alimentée à l'extraction depuis `score_confiance` de `FaitExtrait` (déjà calculé, jamais persisté)
+- Mise à jour à chaque accès : fréquence + récence → score composite
+- Usage : filtrage L0 (faits haute importance toujours injectés) + tri dans `list_facts`
+
+**9b — FTS5 en fallback de recherche**
+- Ajouter `CREATE VIRTUAL TABLE faits_fts USING fts5(contenu, content='faits', content_rowid='id')`
+- Activer dans `rechercher()` si score vectoriel max < 0.50 → fallback BM25 sur contenu
+- Pattern rekal : scoring hybride `0.4×FTS5_BM25 + 0.4×cosine + 0.2×recency_decay`
+- Avantage : retrouver les faits par mots-clés exacts ("SAND", "DataMatch", nom de variable)
+
+**Ordre recommandé :** 9a d'abord (migration simple, colonne seule), puis 9b (plus de travail).
+
 ---
 
 ## Long terme — Idées non planifiées
