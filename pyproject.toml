@@ -8,13 +8,13 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-    "mcp[cli]==1.27.0",
+    "mcp[cli]>=1.27.1",
     "sqlite-vec>=0.1.7",
-    "typer>=0.15.0",
+    "typer>=0.25.1",
     "rich>=14.0.0",
     "httpx>=0.28.0",
     "tomli-w>=1.2.0",
-    "anthropic>=0.97.0",
+    "anthropic>=0.102.0",
 ]
 
 [project.scripts]
