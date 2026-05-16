@@ -201,6 +201,233 @@ class TestListFactsMcpSansModele:
         assert all(f["categorie"] == "projet" for f in resultat["faits"])
 
 
+class _ExtracteurVecteurFixe(ExtracteurBase):
+    """Retourne toujours le même vecteur unitaire — permet de tester la déduplication."""
+
+    def __init__(self, dim: int = DIM):
+        self._vecteur = [1.0] + [0.0] * (dim - 1)
+
+    def extraire(self, conversation: Conversation) -> list[FaitExtrait]:  # noqa: ARG002
+        return []
+
+    def embeddings(self, textes: list[str]) -> list[list[float]]:
+        return [list(self._vecteur) for _ in textes]
+
+
+# ---------------------------------------------------------------------------
+# Tests MCP — add
+# ---------------------------------------------------------------------------
+
+
+class TestAddMcp:
+    """Vérifie que add() MCP retourne bien un dict avec id, contenu, categorie, nouveau."""
+
+    def test_add_nouveau_fait(self):
+        """add() → dict avec nouveau=True et les clés attendues."""
+        import personal_memory_mcp.mcp.server as server_module
+
+        svc = _ServiceAvecExtracteur(_ExtracteurVecteursAleatoires([]))
+        ancien = server_module._service
+        server_module._service = svc
+        try:
+            resultat = server_module.add("J'utilise Python 3.13", categorie="stack")
+        finally:
+            server_module._service = ancien
+
+        assert isinstance(resultat, dict)
+        assert resultat["nouveau"] is True
+        assert isinstance(resultat["id"], int)
+        assert resultat["contenu"] == "J'utilise Python 3.13"
+        assert resultat["categorie"] == "stack"
+
+    def test_add_categorie_normalisee(self):
+        """Catégorie avec majuscule et accent → normalisée en minuscule sans accent."""
+        import personal_memory_mcp.mcp.server as server_module
+
+        svc = _ServiceAvecExtracteur(_ExtracteurVecteursAleatoires([]))
+        ancien = server_module._service
+        server_module._service = svc
+        try:
+            resultat = server_module.add("Fait test", categorie="Préférence")
+        finally:
+            server_module._service = ancien
+
+        assert resultat["categorie"] == "preference"
+
+    def test_add_doublon_detecte(self):
+        """Deux add() avec le même vecteur → second retourne nouveau=False."""
+        import personal_memory_mcp.mcp.server as server_module
+
+        svc = _ServiceAvecExtracteur(_ExtracteurVecteurFixe())
+        ancien = server_module._service
+        server_module._service = svc
+        try:
+            r1 = server_module.add("Fait original", categorie="stack")
+            r2 = server_module.add("Contenu différent mais vecteur identique", categorie="stack")
+        finally:
+            server_module._service = ancien
+
+        assert r1["nouveau"] is True
+        assert r2["nouveau"] is False
+        assert r2["id"] == r1["id"]
+
+
+# ---------------------------------------------------------------------------
+# Tests MCP — search
+# ---------------------------------------------------------------------------
+
+
+class TestSearchMcp:
+    """Vérifie que search() MCP retourne une liste de dicts avec les clés attendues."""
+
+    def test_search_retourne_liste(self):
+        """search() sur base peuplée → list (non vide)."""
+        import personal_memory_mcp.mcp.server as server_module
+
+        svc = _service_avec_faits(5)
+        ancien = server_module._service
+        server_module._service = svc
+        try:
+            resultat = server_module.search("Python FastAPI")
+        finally:
+            server_module._service = ancien
+
+        assert isinstance(resultat, list)
+        assert len(resultat) > 0
+        premier = resultat[0]
+        assert "id" in premier
+        assert "contenu" in premier
+        assert "categorie" in premier
+        assert "score" in premier
+
+    def test_search_top_k_respecte(self):
+        """top_k=2 → au plus 2 résultats."""
+        import personal_memory_mcp.mcp.server as server_module
+
+        svc = _service_avec_faits(10)
+        ancien = server_module._service
+        server_module._service = svc
+        try:
+            resultat = server_module.search("test", top_k=2)
+        finally:
+            server_module._service = ancien
+
+        assert len(resultat) <= 2
+
+    def test_search_base_vide_retourne_liste_vide(self):
+        """search() sur base vide → liste vide."""
+        import personal_memory_mcp.mcp.server as server_module
+
+        svc = _ServiceAvecExtracteur(_ExtracteurVecteursAleatoires([]))
+        ancien = server_module._service
+        server_module._service = svc
+        try:
+            resultat = server_module.search("n'importe quoi")
+        finally:
+            server_module._service = ancien
+
+        assert isinstance(resultat, list)
+        assert len(resultat) == 0
+
+    def test_search_filtre_categorie(self):
+        """search(categorie='projet') → résultats uniquement de cette catégorie."""
+        import personal_memory_mcp.mcp.server as server_module
+
+        svc = _ServiceAvecExtracteur(_ExtracteurVecteursAleatoires([]))
+        for i in range(3):
+            svc._storage.inserer_fait(
+                contenu=f"Fait stack {i}",
+                categorie="stack",
+                source="test",
+                embedding=_vecteur_aleatoire(),
+            )
+        for i in range(2):
+            svc._storage.inserer_fait(
+                contenu=f"Fait projet {i}",
+                categorie="projet",
+                source="test",
+                embedding=_vecteur_aleatoire(),
+            )
+
+        ancien = server_module._service
+        server_module._service = svc
+        try:
+            resultat = server_module.search("fait", top_k=10, categorie="projet")
+        finally:
+            server_module._service = ancien
+
+        assert all(r["categorie"] == "projet" for r in resultat)
+
+
+# ---------------------------------------------------------------------------
+# Tests MCP — delete
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteMcp:
+    """Vérifie que delete() MCP retourne bien un dict avec succes et id."""
+
+    def test_delete_fait_existant(self):
+        """delete(id_existant) → {succes: True, id: N}."""
+        import personal_memory_mcp.mcp.server as server_module
+
+        svc = _ServiceAvecExtracteur(_ExtracteurVecteursAleatoires([]))
+        id_insere = svc._storage.inserer_fait(
+            contenu="Fait à supprimer",
+            categorie="autre",
+            source="test",
+            embedding=_vecteur_aleatoire(),
+        )
+
+        ancien = server_module._service
+        server_module._service = svc
+        try:
+            resultat = server_module.delete(id_insere)
+        finally:
+            server_module._service = ancien
+
+        assert resultat["succes"] is True
+        assert resultat["id"] == id_insere
+
+    def test_delete_fait_inexistant(self):
+        """delete(id_inexistant) → {succes: False, id: 9999}."""
+        import personal_memory_mcp.mcp.server as server_module
+
+        svc = _ServiceAvecExtracteur(_ExtracteurVecteursAleatoires([]))
+        ancien = server_module._service
+        server_module._service = svc
+        try:
+            resultat = server_module.delete(9999)
+        finally:
+            server_module._service = ancien
+
+        assert resultat["succes"] is False
+        assert resultat["id"] == 9999
+
+    def test_delete_puis_absent_de_list(self):
+        """Après delete(), le fait ne doit plus apparaître dans list_facts."""
+        import personal_memory_mcp.mcp.server as server_module
+
+        svc = _ServiceAvecExtracteur(_ExtracteurVecteursAleatoires([]))
+        id_insere = svc._storage.inserer_fait(
+            contenu="Fait temporaire",
+            categorie="autre",
+            source="test",
+            embedding=_vecteur_aleatoire(),
+        )
+
+        ancien = server_module._service
+        server_module._service = svc
+        try:
+            server_module.delete(id_insere)
+            liste = server_module.list_facts(page=1, taille_page=50)
+        finally:
+            server_module._service = ancien
+
+        ids = {f["id"] for f in liste["faits"]}
+        assert id_insere not in ids
+
+
 # ---------------------------------------------------------------------------
 # Tests avec haiku (ANTHROPIC_API_KEY requis)
 # ---------------------------------------------------------------------------
