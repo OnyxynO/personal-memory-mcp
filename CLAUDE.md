@@ -58,7 +58,12 @@ uv run pytest -v            # avec détail par test
 - `tests/test_ui_navigation.py` — 6 tests Playwright browser (skippés sans playwright)
 - `tests/test_integration_mcp.py` — 15 tests MCP (add, search, delete, list_facts) + 2 haiku (skippés sans `ANTHROPIC_API_KEY`)
 
-## État (mai 2026)
+## État (mai 2026) — v0.1.0 livrée
+
+**Projet livré.** Publié sur PyPI le 2026-05-16 : `pip install personal-memory-mcp`
+- GitHub : https://github.com/OnyxynO/personal-memory-mcp/releases/tag/v0.1.0
+- PyPI : https://pypi.org/project/personal-memory-mcp/
+- Token PyPI : `infra/.env` (ignoré git)
 
 - ✅ Phase 1 — Serveur MCP (search, add, list, delete, import_source)
 - ✅ Phase 2 — Import Claude Code (JSONL)
@@ -73,6 +78,7 @@ uv run pytest -v            # avec détail par test
 - ✅ `mmcp migrate-embeddings` — migration entre modèles + dimensions dynamiques
 - ✅ Modèle embedding : `qwen3-embedding:0.6b` (1024 dims) + `distance_metric=cosine`
 - ✅ Suite de tests : 83 tests (81 sans réseau + 2 intégration haiku)
+- ✅ Publication PyPI v0.1.0 + GitHub Release + tag git
 
 ## LSP
 
@@ -106,7 +112,7 @@ Basées sur les patterns de `badlogic/pi-mono` et `theodo-group/debug-that`, ada
 - Fournir un fichier fixture pour tout test d'importation
 
 ### Tests
-- Lancer `uv run pytest` après chaque changement — les 73 tests doivent passer
+- Lancer `uv run pytest` après chaque changement — les 83 tests doivent passer
 - Ajouter des tests si vous créez une nouvelle méthode publique
 - Test coverage n'est pas un objectif rigide, mais chercher à couvrir les chemins critiques
 
