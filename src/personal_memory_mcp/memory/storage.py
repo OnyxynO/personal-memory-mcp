@@ -1,10 +1,13 @@
 """Couche SQLite + sqlite-vec : CRUD et recherche vectorielle."""
 
+import logging
 import sqlite3
 import sqlite_vec
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 SCHEMA_SQL_BASE = """
@@ -416,7 +419,8 @@ class Storage:
                     LIMIT ?
                 """
                 rows = self._conn.execute(sql, (requete_fts, top_k)).fetchall()
-        except Exception:
+        except Exception as e:
+            logger.warning("Erreur recherche FTS5 : %s", e)
             return []
 
         return [
@@ -653,5 +657,6 @@ class Storage:
             conn.close()
             taille = chemin.stat().st_size / 1024 / 1024
             return {"faits": total, "taille_mo": round(taille, 2)}
-        except Exception:
+        except Exception as e:
+            logger.warning("Erreur lecture backup %s : %s", chemin, e)
             return None

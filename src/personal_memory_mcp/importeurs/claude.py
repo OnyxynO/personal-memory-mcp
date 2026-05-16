@@ -113,6 +113,8 @@ class ImporteurClaude(ImporteurBase):
         extracteur = self._service._extracteur
         storage = self._service._storage
 
+        if chemin_zip.stat().st_size > 500 * 1024 * 1024:
+            return {"erreur": "Fichier trop volumineux (max 500 Mo)"}
         data = chemin_zip.read_bytes()
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             noms = zf.namelist()
