@@ -1,6 +1,6 @@
 # PersonalMemoryMCP — Roadmap
 
-> Dernière mise à jour : avril 2026
+> Dernière mise à jour : mai 2026
 
 ---
 
@@ -13,7 +13,9 @@
 - ✅ Import ChatGPT ZIP (conversations.json OpenAI)
 - ✅ Backup/restore de la base SQLite (`mmcp backup`, `mmcp restore`)
 - ✅ Migration entre modèles d'embedding avec dimensions dynamiques (`mmcp migrate-embeddings`)
-- ✅ 54 tests automatisés (52 sans réseau + 2 intégration haiku)
+- ✅ 83 tests automatisés (81 sans réseau + 2 intégration haiku)
+- ✅ Tests MCP directs : add, search, delete, list_facts (15 tests sans Ollama ni réseau)
+- ✅ Audit sécurité : limite ZIP 500 Mo, headers UI (X-Frame-Options, X-Content-Type-Options), loggers `except Exception`
 - ✅ Docs : ARCHITECTURE.html, specs v0.2, pyrightconfig.json
 
 ---
@@ -31,8 +33,9 @@ Frictions identifiées :
 ## Court terme — Améliorations techniques
 
 - ✅ **Pagination `list_facts`** — `page` + `taille_page`, retourne dict `{faits, page, total_pages, total}`. CLI `mmcp list --page N`.
-- ✅ **Tests d'intégration MCP** — `test_integration_mcp.py` : 5 tests MCP directs + 2 tests haiku (skippés sans `ANTHROPIC_API_KEY`).
+- ✅ **Tests d'intégration MCP** — `test_integration_mcp.py` : 15 tests MCP directs (add, search, delete, list_facts) + 2 tests haiku (skippés sans `ANTHROPIC_API_KEY`).
 - ✅ **Journalisation `OSError` dans `_lire_jsonl`** — `logger.warning` avec chemin + message d'erreur
+- ✅ **Audit sécurité** — limite taille ZIP, headers HTTP UI, `except Exception` loggés (mai 2026)
 - [ ] **Publication PyPI** — `personal-memory-mcp` est déjà configuré dans `pyproject.toml`
 
 ---
