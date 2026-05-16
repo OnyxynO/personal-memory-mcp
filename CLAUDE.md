@@ -56,7 +56,7 @@ uv run pytest -v            # avec détail par test
 - `tests/test_lecteur.py` — parsing pur JSONL et ZIP, pagination, filtrage
 - `tests/test_ui_serveur.py` — 15 tests HTTP serveur UI (GET, DELETE, routes)
 - `tests/test_ui_navigation.py` — 6 tests Playwright browser (skippés sans playwright)
-- `tests/test_integration_mcp.py` — 5 tests MCP + 2 haiku (skippés sans `ANTHROPIC_API_KEY`)
+- `tests/test_integration_mcp.py` — 15 tests MCP (add, search, delete, list_facts) + 2 haiku (skippés sans `ANTHROPIC_API_KEY`)
 
 ## État (mai 2026)
 
@@ -72,7 +72,7 @@ uv run pytest -v            # avec détail par test
 - ✅ `mmcp backup` / `mmcp restore` — sauvegarde/restauration DB SQLite
 - ✅ `mmcp migrate-embeddings` — migration entre modèles + dimensions dynamiques
 - ✅ Modèle embedding : `qwen3-embedding:0.6b` (1024 dims) + `distance_metric=cosine`
-- ✅ Suite de tests : 73 tests (71 sans réseau + 2 intégration haiku)
+- ✅ Suite de tests : 83 tests (81 sans réseau + 2 intégration haiku)
 
 ## LSP
 
