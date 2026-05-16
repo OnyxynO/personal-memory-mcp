@@ -7,6 +7,7 @@ dist/
 *.egg-info/
 .env
 .env.local
+infra/
 *.zip
 imports/
 .DS_Store
