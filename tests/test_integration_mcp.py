@@ -382,7 +382,7 @@ class TestDeleteMcp:
         ancien = server_module._service
         server_module._service = svc
         try:
-            resultat = server_module.delete(id_insere)
+            resultat = server_module.delete(id_insere, confirm_id=id_insere)
         finally:
             server_module._service = ancien
 
@@ -397,12 +397,36 @@ class TestDeleteMcp:
         ancien = server_module._service
         server_module._service = svc
         try:
-            resultat = server_module.delete(9999)
+            resultat = server_module.delete(9999, confirm_id=9999)
         finally:
             server_module._service = ancien
 
         assert resultat["succes"] is False
         assert resultat["id"] == 9999
+
+    def test_delete_sans_confirmation_refuse(self):
+        """delete(id, confirm_id≠id) → {erreur: ...} et le fait reste présent."""
+        import personal_memory_mcp.mcp.server as server_module
+
+        svc = _ServiceAvecExtracteur(_ExtracteurVecteursAleatoires([]))
+        id_insere = svc._storage.inserer_fait(
+            contenu="Fait protégé",
+            categorie="autre",
+            source="test",
+            embedding=_vecteur_aleatoire(),
+        )
+
+        ancien = server_module._service
+        server_module._service = svc
+        try:
+            resultat = server_module.delete(id_insere, confirm_id=id_insere + 1)
+            liste = server_module.list_facts(page=1, taille_page=50)
+        finally:
+            server_module._service = ancien
+
+        assert "erreur" in resultat
+        ids = {f["id"] for f in liste["faits"]}
+        assert id_insere in ids
 
     def test_delete_puis_absent_de_list(self):
         """Après delete(), le fait ne doit plus apparaître dans list_facts."""
@@ -419,7 +443,7 @@ class TestDeleteMcp:
         ancien = server_module._service
         server_module._service = svc
         try:
-            server_module.delete(id_insere)
+            server_module.delete(id_insere, confirm_id=id_insere)
             liste = server_module.list_facts(page=1, taille_page=50)
         finally:
             server_module._service = ancien

@@ -471,10 +471,9 @@ wheels = [
 
 [[package]]
 name = "personal-memory-mcp"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
-    { name = "anthropic" },
     { name = "httpx" },
     { name = "idna" },
     { name = "mcp", extra = ["cli"] },
@@ -495,7 +494,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = ">=0.105.2" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "idna", specifier = ">=3.15" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.27.2" },

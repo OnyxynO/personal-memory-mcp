@@ -1,0 +1,138 @@
+{
+  "target": "src/personal_memory_mcp/mcp/server.py",
+  "tools": {
+    "search": {
+      "description": "Recherche s\u00e9mantique dans la m\u00e9moire personnelle.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "top_k": {
+            "type": "integer"
+          },
+          "categorie": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "source_file": "/Users/seb/Documents/Claude projet/projets/personal-memory/src/personal_memory_mcp/mcp/server.py",
+      "source_line": 38,
+      "hash": "84ef3a1f3543f671e82e41832eac59167b23b84c96fd052c1f8ea1e2394254b6"
+    },
+    "add": {
+      "description": "Ajoute un fait en m\u00e9moire (avec d\u00e9duplication automatique).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contenu": {
+            "type": "string"
+          },
+          "categorie": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contenu"
+        ]
+      },
+      "source_file": "/Users/seb/Documents/Claude projet/projets/personal-memory/src/personal_memory_mcp/mcp/server.py",
+      "source_line": 44,
+      "hash": "a7eeb23912ff409a199af98bcb59e47a8c1e386a4a8728f2bdf5f41b7118490a"
+    },
+    "list_facts": {
+      "description": "Liste les faits stock\u00e9s avec pagination.\n\nPr\u00e9f\u00e9rer search() pour les recherches ponctuelles \u2014 list_facts() est con\u00e7u pour\nl'exploration exhaustive de la base. Sans filtre, chaque fait p\u00e8se ~70 tokens.\n\nArgs:\n    categorie: Filtre optionnel (stack, projet, preference, decision,\n               contrainte, contexte, autre). Si absent, tous les faits.\n    page:       Num\u00e9ro de page, commence \u00e0 1 (d\u00e9faut: 1).\n    taille_page: Faits par page (d\u00e9faut: 20, max conseill\u00e9: 50).\n\nReturns:\n    {\n      \"faits\": [{\"id\": int, \"contenu\": str, \"categorie\": str, ...}, ...],\n      \"page\": int,\n      \"total_pages\": int,\n      \"total\": int\n    }",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "categorie": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "taille_page": {
+            "type": "integer"
+          }
+        }
+      },
+      "source_file": "/Users/seb/Documents/Claude projet/projets/personal-memory/src/personal_memory_mcp/mcp/server.py",
+      "source_line": 50,
+      "hash": "9cdee9c2f825494cbc0bda2d79faf7ab76832fd2b466f1571654d48ddc8ef5ea"
+    },
+    "import_source": {
+      "description": "D\u00e9clenche un import depuis le client MCP (claude-code ou claude).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "chemin": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "source_file": "/Users/seb/Documents/Claude projet/projets/personal-memory/src/personal_memory_mcp/mcp/server.py",
+      "source_line": 78,
+      "hash": "f5c569f3dff7dd6cf3411b55e0389ee720b3480f485f695a18327f6035893bb7"
+    },
+    "delete": {
+      "description": "Supprime un fait par son identifiant.\n\nOp\u00e9ration destructive irr\u00e9versible. Pour confirmer, `confirm_id` doit \u00eatre\n\u00e9gal \u00e0 `id` \u2014 l'agent doit donc explicitement saisir l'identifiant deux fois,\nce qui pr\u00e9vient les suppressions accidentelles dans une cha\u00eene d'outils.\n\nArgs:\n    id: Identifiant du fait \u00e0 supprimer.\n    confirm_id: Doit \u00eatre \u00e9gal \u00e0 `id` pour confirmer la suppression.\n\nReturns:\n    {\"succes\": bool, \"id\": int} ou {\"erreur\": str} si la confirmation \u00e9choue.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "confirm_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "confirm_id"
+        ]
+      },
+      "source_file": "/Users/seb/Documents/Claude projet/projets/personal-memory/src/personal_memory_mcp/mcp/server.py",
+      "source_line": 108,
+      "hash": "e3f1a5c747f46e8efa342dcf810a493d42f586fac6b5e2270e1dd7a366ec9b1d"
+    },
+    "import_conversations": {
+      "description": "Retourne des conversations brutes pagin\u00e9es pour que l'IA les analyse.\n\nL'IA doit appeler cet outil en boucle (page=1, 2, 3...) jusqu'\u00e0 \u00e9puisement,\net pour chaque conversation d\u00e9cider quels faits m\u00e9moriser via add().\n\nWorkflow attendu :\n  1. Appeler import_conversations(source, page=1) \u2192 lire les conversations\n  2. Pour chaque fait durable d\u00e9tect\u00e9 \u2192 appeler add(contenu, categorie)\n  3. Appeler import_conversations(source, page=2) \u2192 continuer\n  4. R\u00e9p\u00e9ter jusqu'\u00e0 ce que page > total_pages\n\nCat\u00e9gories disponibles pour add() :\n  stack | projet | preference | decision | contrainte | contexte | autre\n\nArgs:\n    source:      \"claude-code\" (sessions ~/.claude), \"claude\" ou \"chatgpt\" (ZIP export)\n    chemin:      Chemin vers le fichier ZIP (requis si source=\"claude\" ou \"chatgpt\")\n    page:        Num\u00e9ro de page, commence \u00e0 1\n    taille_page: Nombre de conversations par page (d\u00e9faut 5, max conseill\u00e9 10)\n\nReturns:\n    {\n      \"conversations\": [{\"source_detail\": str, \"texte\": str}, ...],\n      \"page\": int,\n      \"total_pages\": int,\n      \"total_conversations\": int\n    }",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "chemin": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "taille_page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
+      "source_file": "/Users/seb/Documents/Claude projet/projets/personal-memory/src/personal_memory_mcp/mcp/server.py",
+      "source_line": 132,
+      "hash": "c5b913da9834dee92a49efe02dddab4b409f3d717c0850b8c81b8bf0b5b5ea33"
+    }
+  }
+}

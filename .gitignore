@@ -11,3 +11,4 @@ infra/
 *.zip
 imports/
 .DS_Store
+mcts_analysis/
