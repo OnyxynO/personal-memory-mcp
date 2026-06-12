@@ -1,5 +1,9 @@
 # personal-memory-mcp
 
+[![PyPI](https://img.shields.io/pypi/v/personal-memory-mcp.svg)](https://pypi.org/project/personal-memory-mcp/)
+[![Python](https://img.shields.io/pypi/pyversions/personal-memory-mcp.svg)](https://pypi.org/project/personal-memory-mcp/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Serveur MCP local qui extrait des faits mémorisables depuis vos historiques de conversations IA et les expose à tous les clients MCP compatibles (Claude Code, Claude Desktop, Cursor…).
 
 ## Fonctionnement

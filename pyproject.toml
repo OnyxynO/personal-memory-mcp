@@ -1,9 +1,10 @@
 [project]
 name = "personal-memory-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Serveur MCP local — mémoire personnelle extraite depuis les historiques IA"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Sébastien Etievant", email = "etievant.sebastien@protonmail.com" }
 ]
@@ -15,6 +16,10 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: Console",
+    "Environment :: Web Environment",
 ]
 requires-python = ">=3.13"
 dependencies = [
@@ -24,10 +29,15 @@ dependencies = [
     "rich>=14.0.0",
     "httpx>=0.28.0",
     "tomli-w>=1.2.0",
-    "anthropic>=0.105.2",
     "idna>=3.15",
     "pydantic>=2.13.4",
 ]
+
+[project.urls]
+Homepage = "https://github.com/OnyxynO/personal-memory-mcp"
+Repository = "https://github.com/OnyxynO/personal-memory-mcp"
+Issues = "https://github.com/OnyxynO/personal-memory-mcp/issues"
+Changelog = "https://github.com/OnyxynO/personal-memory-mcp/releases"
 
 [project.scripts]
 mmcp = "personal_memory_mcp.cli.main:app"
