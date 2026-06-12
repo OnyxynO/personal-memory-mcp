@@ -8,9 +8,19 @@ Serveur MCP local qui extrait des faits mémorisables depuis les historiques
 de conversations IA et les expose à tous les clients MCP compatibles.
 
 - **CLI** : `mmcp`
-- **Paquet PyPI** : `personal-memory-mcp`
+- **Paquet PyPI** : `personal-memory-mcp` — **publié v0.1.1 le 2026-06-12** (https://pypi.org/project/personal-memory-mcp/0.1.1/)
+- **Install end-user** : `pip install personal-memory-mcp`
 - **Données** : `~/.personal-memory/`
 - **Usage** : personnel, pas de multi-utilisateur
+
+## Publication PyPI (2026-06-12 — v0.1.1)
+
+- Build natif `uv build` (build backend `uv_build`, déclaré dans `[build-system]`)
+- Upload : `uv tool run twine upload dist/*` avec token PyPI global stocké dans `infra/pypi-tokens.md` (workspace racine)
+- LICENSE MIT à la racine + `license = "MIT"` + `license-files = ["LICENSE"]` (syntaxe PEP 621 récente)
+- `[project.urls]` : Homepage / Repository / Issues / Changelog → liens GitHub sur PyPI
+- `anthropic` retiré des deps prod (utilisé seulement dans `tests/test_integration_mcp.py:466`)
+- **À retenir** : tester `pip install personal-memory-mcp` dans un venv vierge **avant chaque upload**. Le venv dev a déjà tout, donc une mauvaise déclaration de deps passe inaperçue.
 
 ## Stack
 
