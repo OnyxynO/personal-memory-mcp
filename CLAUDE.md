@@ -8,19 +8,28 @@ Serveur MCP local qui extrait des faits mémorisables depuis les historiques
 de conversations IA et les expose à tous les clients MCP compatibles.
 
 - **CLI** : `mmcp`
-- **Paquet PyPI** : `personal-memory-mcp` — **publié v0.1.1 le 2026-06-12** (https://pypi.org/project/personal-memory-mcp/0.1.1/)
+- **Paquet PyPI** : `personal-memory-mcp` — **publié v0.1.3 le 2026-06-21** (https://pypi.org/project/personal-memory-mcp/0.1.3/)
 - **Install end-user** : `pip install personal-memory-mcp`
 - **Données** : `~/.personal-memory/`
 - **Usage** : personnel, pas de multi-utilisateur
 
-## Publication PyPI (2026-06-12 — v0.1.1)
+## Publication PyPI
 
-- Build natif `uv build` (build backend `uv_build`, déclaré dans `[build-system]`)
-- Upload : `uv tool run twine upload dist/*` avec token PyPI global stocké dans `infra/pypi-tokens.md` (workspace racine)
-- LICENSE MIT à la racine + `license = "MIT"` + `license-files = ["LICENSE"]` (syntaxe PEP 621 récente)
-- `[project.urls]` : Homepage / Repository / Issues / Changelog → liens GitHub sur PyPI
-- `anthropic` retiré des deps prod (utilisé seulement dans `tests/test_integration_mcp.py:466`)
-- **À retenir** : tester `pip install personal-memory-mcp` dans un venv vierge **avant chaque upload**. Le venv dev a déjà tout, donc une mauvaise déclaration de deps passe inaperçue.
+Workflow de release (validé v0.1.1 → v0.1.3) :
+- Bump `version` dans `pyproject.toml`, puis `uv lock` (met à jour la version du paquet dans `uv.lock`)
+- Build natif : `rm -rf dist && uv build` (build backend `uv_build`)
+- `uv tool run twine check dist/*`
+- **Tester `pip install` du wheel dans un venv vierge AVANT upload** (`python3.13 -m venv /tmp/test && .../pip install dist/*.whl && .../mmcp status`). Le venv dev a déjà tout → une mauvaise déclaration de deps passe inaperçue.
+- Upload : `TWINE_USERNAME=__token__ TWINE_PASSWORD=$(grep '^PYPI_TOKEN=' infra/.env | cut -d= -f2-) uv tool run twine upload dist/*`
+- Tag `git tag -a vX.Y.Z` + `gh release create vX.Y.Z`
+- **Token PyPI** : scopé projet dans `infra/.env` local (`PYPI_TOKEN`), gitignored. Le token global est dans `infra/pypi-tokens.md` (workspace racine).
+
+Packaging (depuis v0.1.1) : LICENSE MIT à la racine + `license = "MIT"` + `license-files = ["LICENSE"]` (PEP 621) ; `[project.urls]` Homepage/Repository/Issues/Changelog ; `anthropic` **uniquement en dev-dep** (`[dependency-groups] dev`, tests d'intégration haiku) — pas dans le paquet publié.
+
+### v0.1.3 (2026-06-21) — cohérence embeddings entre versions d'Ollama
+- `nomic-embed-text` (modèle d'embedding **par défaut du code**) produit des vecteurs différents entre versions mineures d'Ollama (issue ollama/ollama#14449) → scores de similarité dégradés après upgrade
+- Détection : clé config DB `version_ollama` écrite à la 1ʳᵉ vectorisation + à chaque `migrate-embeddings` ; `MemoryService.verifier_coherence_embeddings()` compare MAJEUR.MINEUR, n'avertit que pour `MODELES_EMBEDDING_INSTABLES` ; exposé via `mmcp status`, log au démarrage MCP, et le message donne `mmcp migrate-embeddings --modele <m>`
+- `ExtracteurOllama.version()` (GET `/api/version`) + `version()` défaut `None` sur `ExtracteurBase`
 
 ## Stack
 
@@ -52,11 +61,14 @@ de conversations IA et les expose à tous les clients MCP compatibles.
 - `ServiceMock` dans les tests doit hériter de `MemoryService` (pas juste duck-type) pour satisfaire Pyright sur les annotations `"MemoryService"` dans les importeurs
 - **haiku enveloppe JSON dans backticks** : `json.loads()` échoue silencieusement — stripper avant parsing : `re.sub(r"^```[a-z]*\n?", "", brut).rstrip("`").strip()`. Même famille que le filtre `<think>` de qwen3.
 - **sqlite-vec distance L2 vs cosinus** : par défaut `vec0` utilise la distance L2. Pour des vecteurs normalisés, `1 - L2_distance` ≠ cosine_sim (score erroné ~0.03 au lieu de ~0.53). Toujours créer la table avec `distance_metric=cosine` : `CREATE VIRTUAL TABLE faits_vec USING vec0(embedding FLOAT[dim] distance_metric=cosine)`. Avec ce mode, `distance = 1 - cosine_sim` donc `score = 1 - distance` est correct.
+- **embeddings instables entre versions d'Ollama** : `nomic-embed-text` produit des vecteurs différents d'une version mineure d'Ollama à l'autre (issue ollama/ollama#14449). Une base vectorisée avec une version puis interrogée après upgrade renvoie des scores dégradés. Détecté depuis v0.1.3 (cf. `verifier_coherence_embeddings`). Remède : re-vectoriser avec `mmcp migrate-embeddings --modele <m>`.
+- **défaut code ≠ défaut doc pour l'embedding** : `MemoryService`/`ExtracteurOllama` ont pour défaut `nomic-embed-text` (768d), alors que le CLAUDE.md/CLI `migrate-embeddings` poussent `qwen3-embedding:0.6b` (1024d). Volontaire — le modèle effectif est lu depuis la config DB (`modele_embeddings`), le défaut ne s'applique qu'aux nouvelles bases jamais configurées. Ne pas « corriger » le défaut sans script de migration : casserait les bases nomic existantes (dimension différente).
+- **mock extracteur dans les tests** : faire hériter le faux extracteur de `ExtracteurOllama` (dont le `__init__` ne fait aucun réseau), pas un duck-type, sinon Pyright rejette l'affectation à `MemoryService._extracteur`. Même famille que le piège `ServiceMock` ci-dessus.
 
 ## Tests
 
 ```bash
-uv run pytest               # 73 tests, ~11s, sans Ollama ni réseau
+uv run pytest               # 98 tests (96 sans réseau + 2 haiku skippés), ~11s
 uv run pytest -v            # avec détail par test
 ```
 
@@ -67,6 +79,7 @@ uv run pytest -v            # avec détail par test
 - `tests/test_ui_serveur.py` — 15 tests HTTP serveur UI (GET, DELETE, routes)
 - `tests/test_ui_navigation.py` — 6 tests Playwright browser (skippés sans playwright)
 - `tests/test_integration_mcp.py` — 15 tests MCP (add, search, delete, list_facts) + 2 haiku (skippés sans `ANTHROPIC_API_KEY`)
+- `tests/test_coherence_embeddings.py` — 14 tests : `version()`, `_version_mineure`, détection d'incohérence Ollama, enregistrement de version (httpx mocké)
 
 ## État (mai 2026) — v0.1.0 livrée
 
@@ -87,7 +100,13 @@ uv run pytest -v            # avec détail par test
 - ✅ `mmcp backup` / `mmcp restore` — sauvegarde/restauration DB SQLite
 - ✅ `mmcp migrate-embeddings` — migration entre modèles + dimensions dynamiques
 - ✅ Modèle embedding : `qwen3-embedding:0.6b` (1024 dims) + `distance_metric=cosine`
-- ✅ Suite de tests : 83 tests (81 sans réseau + 2 intégration haiku)
+- ✅ Suite de tests : 98 tests (96 sans réseau + 2 intégration haiku)
+
+### Évolutions post-v0.1.0
+- ✅ v0.1.1 (2026-06-12) — audit packaging (LICENSE, urls, `anthropic` en dev-dep)
+- ✅ v0.1.2 (2026-06-12) — hotfix sécurité MCTS (`delete(id, confirm_id)`, `_valider_chemin_local`)
+- ✅ v0.1.3 (2026-06-21) — détection d'incohérence des embeddings entre versions d'Ollama (#14449)
+- ✅ Audit MCTS acté (2026-06-21) : findings critiques = faux positifs structurels déjà mitigés, baseline `mcts_baseline.json` commité
 - ✅ Publication PyPI v0.1.0 + GitHub Release + tag git
 
 ## LSP
