@@ -197,6 +197,24 @@ class ExtracteurOllama(ExtracteurBase):
             )
         return embeddings
 
+    def version(self) -> str | None:
+        """Retourne la version du serveur Ollama via `/api/version`.
+
+        Sert à détecter un changement de version susceptible d'avoir altéré les
+        embeddings (issue ollama/ollama#14449). En cas d'erreur réseau ou de
+        timeout (Ollama indisponible), retourne None plutôt que de lever.
+
+        Returns:
+            La version (ex: "0.30.10"), ou None si Ollama est injoignable.
+        """
+        try:
+            reponse = httpx.get(f"{self._url}/api/version", timeout=5.0)
+            reponse.raise_for_status()
+            version = reponse.json().get("version")
+            return version if isinstance(version, str) else None
+        except Exception:
+            return None
+
     def verifier_disponibilite(self) -> dict[str, bool]:
         """Vérifie que les modèles requis sont disponibles sur Ollama.
 

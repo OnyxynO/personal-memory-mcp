@@ -81,6 +81,36 @@ mmcp migrate-embeddings       # Migration de modèle d'embedding
 mmcp status                   # État du serveur et de la base
 ```
 
+## Cohérence des embeddings et mises à jour d'Ollama
+
+Les modèles d'embedding servis par Ollama ne produisent pas toujours les mêmes
+vecteurs d'une version à l'autre. C'est documenté pour `nomic-embed-text` (le
+modèle d'embedding par défaut) : les vecteurs varient entre versions mineures
+d'Ollama (cf. [ollama/ollama#14449](https://github.com/ollama/ollama/issues/14449)).
+
+**Symptôme** : après une mise à jour d'Ollama, les recherches deviennent moins
+pertinentes (scores de similarité dégradés). En effet, votre base a été
+vectorisée avec l'ancienne version, mais les nouvelles requêtes sont encodées
+avec la nouvelle — les deux ne sont plus comparables.
+
+**Détection automatique** : la version d'Ollama utilisée lors de la vectorisation
+est mémorisée dans la base. Si elle change (au niveau `MAJEUR.MINEUR`),
+`mmcp status` le signale (`coherence_embeddings`) et le serveur MCP émet un
+avertissement au démarrage.
+
+**Remède** : re-vectoriser toute la base avec la version courante d'Ollama
+(une sauvegarde automatique est créée avant l'opération). Passez le modèle
+d'embedding courant pour re-vectoriser à l'identique :
+
+```bash
+mmcp migrate-embeddings --modele nomic-embed-text   # re-vectorise à l'identique
+mmcp status                                          # l'avertissement doit disparaître
+```
+
+> Sans l'option `--modele`, `mmcp migrate-embeddings` migre vers
+> `qwen3-embedding:0.6b` (changement de modèle **et** de dimension). C'est aussi
+> une façon valable de repartir sur une base cohérente si vous préférez ce modèle.
+
 ## Stack technique
 
 - Python 3.13 + [uv](https://github.com/astral-sh/uv)

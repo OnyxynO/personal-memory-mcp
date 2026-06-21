@@ -223,6 +223,19 @@ class Storage:
         ).fetchone()
         return row[0] if row else None
 
+    def ecrire_config(self, cle: str, valeur: str) -> None:
+        """Écrit (ou remplace) une valeur dans la table config.
+
+        Args:
+            cle: Clé de configuration.
+            valeur: Valeur à stocker.
+        """
+        self._conn.execute(
+            "INSERT OR REPLACE INTO config (cle, valeur) VALUES (?, ?)",
+            (cle, valeur),
+        )
+        self._conn.commit()
+
     def lister_tous_contenus(self) -> list[tuple[int, str]]:
         """Retourne (id, contenu) de tous les faits actifs, pour re-embedding.
 

@@ -86,3 +86,12 @@ class ExtracteurBase(ABC):
             ValueError: Si le modèle d'embeddings n'est pas disponible.
         """
         ...
+
+    def version(self) -> str | None:
+        """Version du moteur d'embedding sous-jacent, ou None si non applicable.
+
+        Par défaut None — surchargé par les implémentations qui interrogent un
+        service versionné (ex: Ollama via `/api/version`). Sert à détecter un
+        changement de version susceptible d'avoir altéré les embeddings.
+        """
+        return None

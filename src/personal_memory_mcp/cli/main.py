@@ -227,6 +227,9 @@ def status():
     if s["dernier_import"]:
         d = s["dernier_import"]
         console.print(f"\n[bold]Dernier import[/bold] : {d['type']} — {d['date_import'][:10]} (+{d['nb_faits_ajoutes']} faits)")
+
+    if s["coherence_embeddings"]:
+        console.print(f"\n[yellow]⚠ {s['coherence_embeddings']}[/yellow]")
     console.print()
 
 

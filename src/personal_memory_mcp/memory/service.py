@@ -8,6 +8,23 @@ from personal_memory_mcp.extraction.ollama import ExtracteurOllama
 from personal_memory_mcp.memory.deduplication import est_doublon, SEUIL_PAR_DEFAUT
 from personal_memory_mcp.memory.storage import Storage
 
+# Modèles d'embedding dont les vecteurs sont connus pour varier d'une version
+# mineure d'Ollama à l'autre (issue ollama/ollama#14449). Une base vectorisée
+# avec une version puis interrogée après mise à jour d'Ollama renvoie alors des
+# scores de similarité dégradés tant qu'on n'a pas re-vectorisé.
+MODELES_EMBEDDING_INSTABLES = ("nomic-embed-text",)
+
+
+def _version_mineure(version: str) -> str:
+    """Extrait la version mineure ('0.30.10' -> '0.30').
+
+    On compare au niveau MAJEUR.MINEUR : les correctifs (patch) ne changent en
+    principe pas le comportement des embeddings, contrairement aux releases
+    mineures. Évite un avertissement bruyant à chaque mise à jour de patch.
+    """
+    parties = version.split(".")
+    return ".".join(parties[:2]) if len(parties) >= 2 else version
+
 
 def _normaliser_categorie(categorie: str) -> str:
     """Normalise une catégorie : minuscules + suppression des accents."""
@@ -75,6 +92,20 @@ class MemoryService:
             ValueError: Si la dimension détectée diffère de celle de la base existante.
         """
         self._storage.init_vecteurs(len(embedding))
+        self._enregistrer_version_ollama_si_absente()
+
+    def _enregistrer_version_ollama_si_absente(self) -> None:
+        """Mémorise la version d'Ollama lors de la première vectorisation.
+
+        Permet de détecter ultérieurement un changement de version susceptible
+        d'avoir altéré les embeddings (cf. verifier_coherence_embeddings).
+        Sans effet si la version est déjà enregistrée ou si Ollama est injoignable.
+        """
+        if self._storage.lire_config("version_ollama") is not None:
+            return
+        version = self._extracteur.version()
+        if version:
+            self._storage.ecrire_config("version_ollama", version)
 
     # --- Outils MCP ---
 
@@ -249,6 +280,12 @@ class MemoryService:
         # 4. Recréer faits_vec avec la nouvelle dimension (+ stocker le modèle en config)
         self._storage.recreer_index_vecteurs(nouvelle_dim, modele=nouveau_modele)
 
+        # 4b. Mémoriser la version d'Ollama ayant servi à cette re-vectorisation,
+        #     pour détecter un futur changement de version (ollama/ollama#14449).
+        version = self._extracteur.version()
+        if version:
+            self._storage.ecrire_config("version_ollama", version)
+
         # 5. Re-embedder tous les faits en batch
         faits = self._storage.lister_tous_contenus()
         nb_total = len(faits)
@@ -273,6 +310,43 @@ class MemoryService:
             "sauvegarde": str(dest_backup),
         }
 
+    def verifier_coherence_embeddings(self) -> str | None:
+        """Détecte un changement de version d'Ollama ayant pu altérer les embeddings.
+
+        Compare la version mineure d'Ollama enregistrée lors de la vectorisation
+        à la version courante. Si elles diffèrent et que le modèle d'embedding
+        figure parmi les modèles instables entre versions (issue
+        ollama/ollama#14449), retourne un message invitant à re-vectoriser via
+        `mmcp migrate-embeddings`.
+
+        Ne déclenche rien (retourne None) si : aucune version n'est enregistrée
+        (base antérieure à cette fonctionnalité ou jamais vectorisée), le modèle
+        n'est pas connu instable, Ollama est injoignable, ou les versions
+        mineures coïncident.
+
+        Returns:
+            Message d'avertissement, ou None si cohérent / indéterminable.
+        """
+        version_stockee = self._storage.lire_config("version_ollama")
+        if not version_stockee:
+            return None
+        modele = self._extracteur._modele_embeddings
+        if not any(modele.startswith(m) for m in MODELES_EMBEDDING_INSTABLES):
+            return None
+        version_courante = self._extracteur.version()
+        if not version_courante:
+            return None
+        if _version_mineure(version_stockee) == _version_mineure(version_courante):
+            return None
+        return (
+            f"Ollama a changé de version depuis la vectorisation de la base "
+            f"({version_stockee} → {version_courante}). Le modèle d'embedding "
+            f"'{modele}' peut produire des vecteurs incompatibles entre versions "
+            f"(ollama/ollama#14449), ce qui dégrade les scores de similarité. "
+            f"Relancez 'mmcp migrate-embeddings --modele {modele}' pour "
+            f"re-vectoriser la base avec la version courante."
+        )
+
     def status(self) -> dict[str, Any]:
         stats = self._storage.compter()
         disponibilite = self._extracteur.verifier_disponibilite()
@@ -282,4 +356,5 @@ class MemoryService:
             "faits": stats,
             "ollama": disponibilite,
             "dernier_import": dernier,
+            "coherence_embeddings": self.verifier_coherence_embeddings(),
         }

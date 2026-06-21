@@ -202,4 +202,11 @@ def import_conversations(
 
 
 def lancer():
+    import logging
+
+    # Avertir (sur stderr, via logging) si la version d'Ollama a changé depuis
+    # la vectorisation — les embeddings peuvent être devenus incohérents.
+    avertissement = _get_service().verifier_coherence_embeddings()
+    if avertissement:
+        logging.getLogger(__name__).warning(avertissement)
     mcp.run()
