@@ -1,6 +1,6 @@
 [project]
 name = "personal-memory-mcp"
-version = "0.1.2"
+version = "0.1.3"
 description = "Serveur MCP local — mémoire personnelle extraite depuis les historiques IA"
 readme = "README.md"
 license = "MIT"
