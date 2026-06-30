@@ -113,7 +113,7 @@ mmcp status                                          # l'avertissement doit disp
 
 ## Stack technique
 
-- Python 3.13 + [uv](https://github.com/astral-sh/uv)
+- Python 3.14 (dev, compatible 3.13+) + [uv](https://github.com/astral-sh/uv)
 - [MCP SDK Anthropic](https://github.com/anthropics/python-sdk)
 - SQLite + [sqlite-vec](https://github.com/asg017/sqlite-vec) (stockage vectoriel + FTS5)
 - Ollama : `qwen3-embedding:0.6b` (embeddings) + `qwen3:1.7b` (extraction)

@@ -33,7 +33,7 @@ Packaging (depuis v0.1.1) : LICENSE MIT à la racine + `license = "MIT"` + `lice
 
 ## Stack
 
-- Python 3.13 + uv
+- Python 3.14 (dev) + uv — `requires-python >=3.13` conservé pour ne pas exclure les installs PyPI en 3.13
 - MCP SDK officiel Anthropic (`mcp`)
 - sqlite-vec (stockage vectoriel + FTS5)
 - Ollama : `qwen3-embedding:0.6b` (embeddings, 1024 dims) + `qwen3:1.7b` (extraction faits)
@@ -49,6 +49,8 @@ Packaging (depuis v0.1.1) : LICENSE MIT à la racine + `license = "MIT"` + `lice
 - **`list_facts` sans filtre = réponse volumineuse** : ~70 tokens/fait, soit ~12k tokens pour 176 faits. Éviter en session normale — préférer `search(query)` qui retourne seulement les faits pertinents.
 - **`import_conversations` en Mode B** : chaque page de 5 conversations peut générer 2k-5k tokens de contexte. Préférer un **modèle peu coûteux** (haiku) pour les imports en boucle — la qualité d'extraction est suffisante et le coût est 10× inférieur à sonnet/opus.
 - **Règle générale** : pour tout appel MCP en boucle (pagination), utiliser haiku. Réserver sonnet/opus pour les recherches ponctuelles ou les décisions complexes sur les faits.
+- **Dépréciation MCP WebSocket (SDK `mcp` 1.28.0) — non concerné** : la v1.28.0 déprécie le transport WebSocket (suppression en v2). Vérifié le 2026-06-26 : ce projet utilise `mcp.run()` en **stdio**, aucun usage WebSocket → aucune migration requise. (Ne pas refaire la vérif.)
+- **Piste — `headroom` (MCP, à évaluer)** : serveur MCP drop-in qui compresse les outputs d'outils/RAG de 60-95 % avant qu'ils atteignent le LLM (topic `claude-code`). Pertinent pour réduire le coût des contextes longs ici. À tester quand le volume de requêtes Anthropic devient non trivial. (Veille GitHub trending 2026-06-22)
 
 ## Pièges connus (depuis expériences précédentes)
 
