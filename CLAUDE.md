@@ -83,9 +83,9 @@ uv run pytest -v            # avec détail par test
 - `tests/test_integration_mcp.py` — 15 tests MCP (add, search, delete, list_facts) + 2 haiku (skippés sans `ANTHROPIC_API_KEY`)
 - `tests/test_coherence_embeddings.py` — 14 tests : `version()`, `_version_mineure`, détection d'incohérence Ollama, enregistrement de version (httpx mocké)
 
-## État (mai 2026) — v0.1.0 livrée
+## État (juin 2026) — v0.1.3 publiée
 
-**Projet livré.** Publié sur PyPI le 2026-05-16 : `pip install personal-memory-mcp`
+**Projet livré.** Dernière version PyPI **v0.1.3 (2026-06-21)** ; publication initiale v0.1.0 le 2026-05-16. `pip install personal-memory-mcp`
 - GitHub : https://github.com/OnyxynO/personal-memory-mcp/releases/tag/v0.1.0
 - PyPI : https://pypi.org/project/personal-memory-mcp/
 - Token PyPI : `infra/.env` (ignoré git)
@@ -143,7 +143,7 @@ Basées sur les patterns de `badlogic/pi-mono` et `theodo-group/debug-that`, ada
 - Fournir un fichier fixture pour tout test d'importation
 
 ### Tests
-- Lancer `uv run pytest` après chaque changement — les 83 tests doivent passer
+- Lancer `uv run pytest` après chaque changement — les 98 tests doivent passer
 - Ajouter des tests si vous créez une nouvelle méthode publique
 - Test coverage n'est pas un objectif rigide, mais chercher à couvrir les chemins critiques
 
