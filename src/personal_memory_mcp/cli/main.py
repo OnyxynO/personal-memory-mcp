@@ -55,10 +55,14 @@ def setup():
 
 @app.command("import")
 def import_cmd(
-    source: str = typer.Argument(help="Source : 'claude-code' ou 'claude'"),
-    chemin: Annotated[Optional[str], typer.Argument(help="Chemin vers le fichier (requis pour 'claude')")] = None,
+    source: str = typer.Argument(help="Source : claude-code | claude | chatgpt | markdown-tree"),
+    chemin: Annotated[Optional[str], typer.Argument(help="Chemin (fichier ZIP, ou racine pour markdown-tree)")] = None,
+    inclure_refs: bool = typer.Option(False, "--inclure-refs", help="markdown-tree : indexer aussi _refs/ (repos tiers)"),
+    projet_base: str = typer.Option("projets", "--projet-base", help="markdown-tree : base de dérivation du projet"),
+    projet_defaut: Annotated[Optional[str], typer.Option("--projet-defaut", help="markdown-tree : projet des fichiers hors base")] = None,
+    sans_purge: bool = typer.Option(False, "--sans-purge", help="markdown-tree : ne pas purger la source workspace avant"),
 ):
-    """Importe des faits depuis un historique IA."""
+    """Importe des faits depuis un historique IA ou un arbre Markdown."""
     svc = _service()
 
     if source == "claude-code":
@@ -129,8 +133,40 @@ def import_cmd(
             console.print(f"  [yellow]! {res['nb_erreurs']} erreurs[/yellow]")
         console.print(f"  [bold]✓ Terminé en {res['duree']}s[/bold]\n")
 
+    elif source == "markdown-tree":
+        if not chemin:
+            console.print("[red]Racine requise : mmcp import markdown-tree <racine>[/red]")
+            raise typer.Exit(1)
+        from personal_memory_mcp.importeurs.markdown_tree import (
+            EXCLUSIONS_DEFAUT,
+            ImporteurMarkdownTree,
+        )
+        exclusions = EXCLUSIONS_DEFAUT if inclure_refs else (EXCLUSIONS_DEFAUT | {"_refs"})
+        importeur = ImporteurMarkdownTree(
+            svc,
+            exclusions=exclusions,
+            projet_base=projet_base,
+            projet_defaut=projet_defaut,
+            purger=not sans_purge,
+        )
+        console.print(f"\nIndexation de [bold]{chemin}[/bold] (découpage + embedding)...")
+        with console.status("Indexation en cours..."):
+            try:
+                res = importeur.importer(chemin)
+            except (FileNotFoundError, ValueError) as e:
+                console.print(f"[red]Erreur : {e}[/red]")
+                raise typer.Exit(1)
+
+        console.print(f"  [green]+ {res['ajoutes']} chunks indexés[/green]")
+        if res.get("nb_erreurs"):
+            console.print(f"  [yellow]! {res['nb_erreurs']} erreurs[/yellow]")
+        console.print(f"  [bold]✓ Terminé en {res['duree']}s[/bold]\n")
+
     else:
-        console.print(f"[red]Source inconnue : '{source}'. Valeurs valides : claude-code, claude, chatgpt[/red]")
+        console.print(
+            f"[red]Source inconnue : '{source}'. Valeurs valides : "
+            f"claude-code, claude, chatgpt, markdown-tree[/red]"
+        )
         raise typer.Exit(1)
 
 
@@ -139,10 +175,11 @@ def search(
     query: str = typer.Argument(help="Requête de recherche"),
     top_k: int = typer.Option(5, "--top-k", "-k", help="Nombre de résultats"),
     seuil: float = typer.Option(0.20, "--seuil", "-s", help="Seuil de similarité minimum"),
+    projet: Annotated[Optional[str], typer.Option("--projet", "-P", help="Filtrer par projet")] = None,
 ):
     """Recherche sémantique dans la mémoire."""
     svc = _service()
-    resultats = svc.search(query, top_k=top_k)
+    resultats = svc.search(query, top_k=top_k, projet=projet)
     filtres = [r for r in resultats if r["score"] >= seuil]
 
     if not filtres:
