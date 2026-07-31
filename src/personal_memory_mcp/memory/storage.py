@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS faits (
     categorie                 TEXT NOT NULL,
     source                    TEXT NOT NULL,
     source_detail             TEXT,
+    projet                    TEXT,
     date_creation             TEXT NOT NULL,
     date_derniere_utilisation TEXT,
     actif                     INTEGER DEFAULT 1,
@@ -107,6 +108,15 @@ class Storage:
         if "score_importance" not in colonnes:
             self._conn.execute("ALTER TABLE faits ADD COLUMN score_importance REAL DEFAULT 0.5")
             self._conn.commit()
+
+        # M3: colonne projet + index (scoping des faits par projet du workspace)
+        if "projet" not in colonnes:
+            self._conn.execute("ALTER TABLE faits ADD COLUMN projet TEXT")
+            self._conn.commit()
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_faits_projet ON faits(projet)"
+        )
+        self._conn.commit()
 
         # M2: peupler l'index FTS5 via 'rebuild' si pas encore initialisé
         # (le manual INSERT ne construit pas l'index pour les content tables)
@@ -274,6 +284,7 @@ class Storage:
         embedding: list[float],
         source_detail: str | None = None,
         score_importance: float = 0.5,
+        projet: str | None = None,
     ) -> int:
         """Insère un nouveau fait avec son embedding.
 
@@ -287,6 +298,7 @@ class Storage:
             embedding: Vecteur d'embedding.
             source_detail: Détail optionnel (chemin fichier, session_id, etc.).
             score_importance: Confiance du LLM dans le fait [0.0, 1.0] (défaut: 0.5).
+            projet: Projet de rattachement (pour le scoping des requêtes), ou None.
 
         Returns:
             ID du fait inséré (rowid).
@@ -296,10 +308,10 @@ class Storage:
         """
         curseur = self._conn.execute(
             """
-            INSERT INTO faits (contenu, categorie, source, source_detail, date_creation, score_importance)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO faits (contenu, categorie, source, source_detail, projet, date_creation, score_importance)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (contenu, categorie, source, source_detail, _maintenant(), score_importance),
+            (contenu, categorie, source, source_detail, projet, _maintenant(), score_importance),
         )
         rowid: int = curseur.lastrowid  # type: ignore[assignment]
         import struct
@@ -316,6 +328,7 @@ class Storage:
         embedding: list[float],
         top_k: int = 5,
         categorie: str | None = None,
+        projet: str | None = None,
     ) -> list[dict[str, Any]]:
         """Recherche vectorielle (k-plus proches voisins) dans les faits.
 
@@ -327,6 +340,7 @@ class Storage:
             embedding: Vecteur d'embedding de la requête (768 dimensions).
             top_k: Nombre de résultats à retourner (défaut: 5).
             categorie: Filtre optionnel par catégorie (si None, tous les faits).
+            projet: Filtre optionnel par projet (si None, tous les projets).
 
         Returns:
             Liste de dicts avec clés: id, contenu, categorie, source, score.
@@ -335,30 +349,25 @@ class Storage:
         import struct
         blob = struct.pack(f"{len(embedding)}f", *embedding)
 
+        conditions = ["f.actif = 1"]
+        params: list[str] = []
         if categorie:
-            sql = """
-                SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
-                       f.score_importance, v.distance
-                FROM faits_vec v
-                JOIN faits f ON f.id = v.rowid
-                WHERE f.actif = 1 AND f.categorie = ?
-                  AND v.embedding MATCH ?
-                  AND k = ?
-                ORDER BY v.distance
-            """
-            rows = self._conn.execute(sql, (categorie, blob, top_k)).fetchall()
-        else:
-            sql = """
-                SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
-                       f.score_importance, v.distance
-                FROM faits_vec v
-                JOIN faits f ON f.id = v.rowid
-                WHERE f.actif = 1
-                  AND v.embedding MATCH ?
-                  AND k = ?
-                ORDER BY v.distance
-            """
-            rows = self._conn.execute(sql, (blob, top_k)).fetchall()
+            conditions.append("f.categorie = ?")
+            params.append(categorie)
+        if projet:
+            conditions.append("f.projet = ?")
+            params.append(projet)
+        sql = f"""
+            SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
+                   f.score_importance, v.distance
+            FROM faits_vec v
+            JOIN faits f ON f.id = v.rowid
+            WHERE {" AND ".join(conditions)}
+              AND v.embedding MATCH ?
+              AND k = ?
+            ORDER BY v.distance
+        """
+        rows = self._conn.execute(sql, (*params, blob, top_k)).fetchall()
 
         # Mise à jour date_derniere_utilisation
         ids = [r["id"] for r in rows]
@@ -387,6 +396,7 @@ class Storage:
         query: str,
         top_k: int = 5,
         categorie: str | None = None,
+        projet: str | None = None,
     ) -> list[dict[str, Any]]:
         """Recherche plein-texte BM25 via FTS5 (fallback ou complément vectoriel).
 
@@ -398,6 +408,7 @@ class Storage:
             query: Texte de la requête (mots-clés, noms propres, identifiants).
             top_k: Nombre de résultats à retourner (défaut: 5).
             categorie: Filtre optionnel par catégorie.
+            projet: Filtre optionnel par projet (si None, tous les projets).
 
         Returns:
             Liste de dicts avec clés: id, contenu, categorie, source, score, score_importance.
@@ -409,29 +420,25 @@ class Storage:
             return []
         requete_fts = " ".join(f'"{m}"*' for m in mots)
 
+        conditions = ["f.actif = 1"]
+        params: list[str] = []
+        if categorie:
+            conditions.append("f.categorie = ?")
+            params.append(categorie)
+        if projet:
+            conditions.append("f.projet = ?")
+            params.append(projet)
+        sql = f"""
+            SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
+                   f.score_importance, bm25(faits_fts) AS bm25_score
+            FROM faits_fts
+            JOIN faits f ON f.id = faits_fts.rowid
+            WHERE faits_fts MATCH ? AND {" AND ".join(conditions)}
+            ORDER BY bm25_score
+            LIMIT ?
+        """
         try:
-            if categorie:
-                sql = """
-                    SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
-                           f.score_importance, bm25(faits_fts) AS bm25_score
-                    FROM faits_fts
-                    JOIN faits f ON f.id = faits_fts.rowid
-                    WHERE faits_fts MATCH ? AND f.actif = 1 AND f.categorie = ?
-                    ORDER BY bm25_score
-                    LIMIT ?
-                """
-                rows = self._conn.execute(sql, (requete_fts, categorie, top_k)).fetchall()
-            else:
-                sql = """
-                    SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
-                           f.score_importance, bm25(faits_fts) AS bm25_score
-                    FROM faits_fts
-                    JOIN faits f ON f.id = faits_fts.rowid
-                    WHERE faits_fts MATCH ? AND f.actif = 1
-                    ORDER BY bm25_score
-                    LIMIT ?
-                """
-                rows = self._conn.execute(sql, (requete_fts, top_k)).fetchall()
+            rows = self._conn.execute(sql, (requete_fts, *params, top_k)).fetchall()
         except Exception as e:
             logger.warning("Erreur recherche FTS5 : %s", e)
             return []
@@ -555,6 +562,40 @@ class Storage:
         return self._conn.execute(
             "SELECT changes()"
         ).fetchone()[0] > 0
+
+    def purger_source(self, source: str, projet: str | None = None) -> int:
+        """Supprime définitivement tous les faits d'une source (hard delete).
+
+        Utilisé pour la réindexation idempotente : on purge les faits d'une
+        source (ex: "workspace") avant de les ré-ingérer, pour éviter toute
+        accumulation de doublons. Contrairement à `supprimer` (soft delete),
+        les lignes et leurs vecteurs sont réellement retirés, et l'index FTS5
+        est reconstruit (aucun trigger ne couvre le DELETE sur table externe).
+
+        Args:
+            source: Source des faits à purger (ex: "workspace").
+            projet: Restreint la purge à ce projet (si None, toute la source).
+
+        Returns:
+            Nombre de faits purgés.
+        """
+        if projet:
+            rows = self._conn.execute(
+                "SELECT id FROM faits WHERE source = ? AND projet = ?", (source, projet)
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT id FROM faits WHERE source = ?", (source,)
+            ).fetchall()
+        ids = [r[0] for r in rows]
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        self._conn.execute(f"DELETE FROM faits_vec WHERE rowid IN ({placeholders})", ids)
+        self._conn.execute(f"DELETE FROM faits WHERE id IN ({placeholders})", ids)
+        self._conn.execute("INSERT INTO faits_fts(faits_fts) VALUES('rebuild')")
+        self._conn.commit()
+        return len(ids)
 
     def compter(self) -> dict[str, Any]:
         """Retourne le compte de faits actifs par catégorie.
