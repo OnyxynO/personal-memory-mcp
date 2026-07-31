@@ -253,6 +253,21 @@ class MemoryService:
         succes = self._storage.supprimer(id)
         return {"succes": succes, "id": id}
 
+    def purger_source(self, source: str, projet: str | None = None) -> int:
+        """Purge les faits d'une source (pour une réindexation idempotente).
+
+        Fine délégation à `Storage.purger_source` : hard delete des faits de la
+        source (optionnellement restreinte à un projet) + reconstruction FTS.
+
+        Args:
+            source: Source des faits à purger (ex: "workspace").
+            projet: Restreint la purge à ce projet (si None, toute la source).
+
+        Returns:
+            Nombre de faits purgés.
+        """
+        return self._storage.purger_source(source, projet)
+
     def migrer_embeddings(
         self,
         nouveau_modele: str,
