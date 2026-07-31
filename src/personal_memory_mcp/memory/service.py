@@ -114,6 +114,7 @@ class MemoryService:
         query: str,
         top_k: int = 5,
         categorie: str | None = None,
+        projet: str | None = None,
     ) -> list[dict[str, Any]]:
         """Recherche hybride (vectorielle + FTS5 fallback) dans la mémoire.
 
@@ -125,18 +126,19 @@ class MemoryService:
             query: Texte de la requête en langage naturel.
             top_k: Nombre de résultats à retourner (défaut: 5).
             categorie: Filtre optionnel par catégorie (si None, tous les faits).
+            projet: Filtre optionnel par projet (si None, tous les projets).
 
         Returns:
             Liste de dicts avec clés: id, contenu, categorie, source, score, score_importance.
         """
         [embedding] = self._extracteur.embeddings([query])
         self._assurer_vecteurs_init(embedding)
-        resultats = self._storage.rechercher(embedding, top_k=top_k, categorie=categorie)
+        resultats = self._storage.rechercher(embedding, top_k=top_k, categorie=categorie, projet=projet)
 
         # Fallback FTS5 si la recherche vectorielle est peu convaincante
         score_max = max((r["score"] for r in resultats), default=0.0)
         if score_max < 0.50:
-            resultats_fts = self._storage.rechercher_fts(query, top_k=top_k, categorie=categorie)
+            resultats_fts = self._storage.rechercher_fts(query, top_k=top_k, categorie=categorie, projet=projet)
             ids_existants = {r["id"] for r in resultats}
             for r in resultats_fts:
                 if r["id"] not in ids_existants:
@@ -151,19 +153,27 @@ class MemoryService:
         contenu: str,
         categorie: str = "autre",
         source: str = "manuel",
+        projet: str | None = None,
+        source_detail: str | None = None,
+        dedup: bool = True,
     ) -> dict[str, Any]:
-        """Ajoute un fait en mémoire (avec déduplication automatique).
+        """Ajoute un fait en mémoire (avec déduplication automatique optionnelle).
 
-        Calcule l'embedding du contenu, vérifie la déduplication vectorielle,
-        et insère si nouveau. En cas de doublon, retourne le fait existant
-        le plus proche.
+        Calcule l'embedding du contenu, vérifie la déduplication vectorielle
+        (si `dedup`), et insère si nouveau. En cas de doublon, retourne le fait
+        existant le plus proche.
 
         Args:
-            contenu: Texte du fait à mémoriser (~1 phrase).
+            contenu: Texte du fait à mémoriser (~1 phrase, ou un chunk de document).
             categorie: Catégorie du fait (défaut: "autre"). Valeurs: stack, projet,
-                      preference, decision, contrainte, contexte, autre.
+                      preference, decision, contrainte, contexte, doc, autre.
             source: Source du fait (défaut: "manuel"). Valeurs: manuel, claude-code,
-                   claude, chatgpt.
+                   claude, chatgpt, workspace.
+            projet: Projet de rattachement (pour le scoping des requêtes), ou None.
+            source_detail: Provenance (ex: chemin#titre pour un chunk de doc), ou None.
+            dedup: Si True (défaut), ignore un fait quasi identique déjà présent.
+                   Mettre False pour l'indexation de documents (la purge préalable
+                   gère l'idempotence ; on ne veut pas dédupliquer contre d'autres sources).
 
         Returns:
             Dict avec clés: id, contenu, categorie, nouveau (bool).
@@ -174,7 +184,7 @@ class MemoryService:
         categorie = _normaliser_categorie(categorie)
         [embedding] = self._extracteur.embeddings([contenu])
         self._assurer_vecteurs_init(embedding)
-        if est_doublon(embedding, self._storage, self._seuil):
+        if dedup and est_doublon(embedding, self._storage, self._seuil):
             # Trouver le fait existant le plus proche pour retourner son id
             voisins = self._storage.voisins_proches(embedding, top_k=1)
             id_existant = voisins[0][0] if voisins else -1
@@ -190,6 +200,8 @@ class MemoryService:
             categorie=categorie,
             source=source,
             embedding=embedding,
+            source_detail=source_detail,
+            projet=projet,
         )
         return {"id": id_nouveau, "contenu": contenu, "categorie": categorie, "nouveau": True}
 
