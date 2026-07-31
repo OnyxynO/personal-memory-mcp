@@ -110,6 +110,12 @@ uv run pytest -v            # avec détail par test
 - ✅ v0.1.3 (2026-06-21) — détection d'incohérence des embeddings entre versions d'Ollama (#14449)
 - ✅ Audit MCTS acté (2026-06-21) : findings critiques = faux positifs structurels déjà mitigés, baseline `mcts_baseline.json` commité
 - ✅ Publication PyPI v0.1.0 + GitHub Release + tag git
+- ✅ Indexation « arbre Markdown » + scoping par projet (2026-07-31, Phase 1 de l'Atelier ouroboros, non publié) :
+  - colonne `projet` sur `faits` (migration idempotente) + filtre `projet` sur `search` (CLI/MCP)
+  - `add(projet, source_detail, dedup)` ; `MemoryService.purger_source` + `Storage.purger_source` (hard delete + rebuild FTS)
+  - `ImporteurMarkdownTree` (`importeurs/markdown_tree.py`) : **chunk-and-embed** générique (découpe par section, exclusions paramétrables, purge préalable), **sans extraction LLM** — pour du contenu déjà distillé
+  - CLI `mmcp import markdown-tree <racine>` (options `--inclure-refs`, `--projet-base`, `--projet-defaut`, `--sans-purge`)
+  - **Dérivation projet en profondeur 1** sous une base (`projets/<x>` → `<x>` ; familles au niveau famille) — la granularité sous-projet (aligner sur le registry) reste un raffinement à venir
 
 ## LSP
 
@@ -177,6 +183,8 @@ uv run mmcp ui             # Interface web locale http://localhost:8766
 uv run mmcp import claude-code
 uv run mmcp import claude ~/Downloads/export.zip
 uv run mmcp import chatgpt ~/Downloads/export.zip
+uv run mmcp import markdown-tree "/chemin/workspace"  # indexe un arbre .md (chunk-and-embed, sans LLM)
+uv run mmcp search "requête" --projet sand       # recherche scopée par projet
 uv run mmcp export                               # JSON vers stdout
 uv run mmcp export --format csv --sortie faits.csv
 uv run mmcp export --format json --categorie stack
