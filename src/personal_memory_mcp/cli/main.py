@@ -60,7 +60,6 @@ def import_cmd(
     inclure_refs: bool = typer.Option(False, "--inclure-refs", help="markdown-tree : indexer aussi _refs/ (repos tiers)"),
     projet_base: str = typer.Option("projets", "--projet-base", help="markdown-tree : base de dérivation du projet"),
     projet_defaut: Annotated[Optional[str], typer.Option("--projet-defaut", help="markdown-tree : projet des fichiers hors base")] = None,
-    sans_purge: bool = typer.Option(False, "--sans-purge", help="markdown-tree : ne pas purger la source workspace avant"),
 ):
     """Importe des faits depuis un historique IA ou un arbre Markdown."""
     svc = _service()
@@ -147,7 +146,6 @@ def import_cmd(
             exclusions=exclusions,
             projet_base=projet_base,
             projet_defaut=projet_defaut,
-            purger=not sans_purge,
         )
         console.print(f"\nIndexation de [bold]{chemin}[/bold] (découpage + embedding)...")
         with console.status("Indexation en cours..."):

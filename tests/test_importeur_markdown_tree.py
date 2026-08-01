@@ -117,8 +117,48 @@ def test_reindexation_idempotente_grace_a_la_purge(tmp_path: Path) -> None:
     assert svc._storage.compter()["total"] == 3
 
 
+def _arbre_projet(base: Path, projet: str, texte: str) -> Path:
+    """Crée un arbre `<base>/projets/<projet>/C.md` et retourne la racine `<base>`."""
+    d = base / "projets" / projet
+    d.mkdir(parents=True)
+    (d / "C.md").write_text(f"# {projet}\n{texte}\n", encoding="utf-8")
+    return base
+
+
+def _projets_en_base(svc: _ServiceTest) -> set[str]:
+    return {
+        r["projet"]
+        for r in svc._storage._conn.execute(
+            "SELECT projet FROM faits WHERE source = 'workspace'"
+        ).fetchall()
+    }
+
+
+def test_purge_scopee_au_perimetre_preserve_les_autres_projets(tmp_path: Path) -> None:
+    # La purge doit être scopée aux projets du périmètre indexé : indexer un
+    # arbre (projet vigie) ne doit PAS effacer un arbre déjà indexé (projet
+    # sand). Régression : l'ancienne purge globale de la source effaçait tout.
+    svc = _ServiceTest(tmp_path / "m.db")
+    imp = ImporteurMarkdownTree(svc, projet_defaut="ouroboros")
+    imp.importer(str(_arbre_projet(tmp_path / "a", "sand", "deploiement")))
+    imp.importer(str(_arbre_projet(tmp_path / "b", "vigie", "triggers")))
+    assert _projets_en_base(svc) == {"sand", "vigie"}
+
+
+def test_reindex_meme_perimetre_ne_cree_pas_de_doublon(tmp_path: Path) -> None:
+    # Ré-indexer deux fois le même périmètre ne double jamais ses faits :
+    # la purge scopée le vide avant chaque ré-ingestion (idempotence).
+    svc = _ServiceTest(tmp_path / "m.db")
+    imp = ImporteurMarkdownTree(svc, projet_defaut="ouroboros")
+    racine = str(_arbre_projet(tmp_path / "a", "sand", "deploiement"))
+    imp.importer(racine)
+    total = svc._storage.compter()["total"]
+    imp.importer(racine)
+    assert svc._storage.compter()["total"] == total
+
+
 def test_importer_racine_absente_leve(tmp_path: Path) -> None:
     svc = _ServiceTest(tmp_path / "m.db")
-    imp = ImporteurMarkdownTree(svc, purger=False)
+    imp = ImporteurMarkdownTree(svc)
     with pytest.raises(FileNotFoundError):
         imp.importer(str(tmp_path / "introuvable"))

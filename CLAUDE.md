@@ -114,8 +114,9 @@ uv run pytest -v            # avec détail par test
 - ✅ Indexation « arbre Markdown » + scoping par projet (2026-07-31, Phase 1 de l'Atelier ouroboros, non publié) :
   - colonne `projet` sur `faits` (migration idempotente) + filtre `projet` sur `search` (CLI/MCP)
   - `add(projet, source_detail, dedup)` ; `MemoryService.purger_source` + `Storage.purger_source` (hard delete + rebuild FTS)
-  - `ImporteurMarkdownTree` (`importeurs/markdown_tree.py`) : **chunk-and-embed** générique (découpe par section, exclusions paramétrables, purge préalable), **sans extraction LLM** — pour du contenu déjà distillé
-  - CLI `mmcp import markdown-tree <racine>` (options `--inclure-refs`, `--projet-base`, `--projet-defaut`, `--sans-purge`)
+  - `ImporteurMarkdownTree` (`importeurs/markdown_tree.py`) : **chunk-and-embed** générique (découpe par section, exclusions paramétrables), **sans extraction LLM** — pour du contenu déjà distillé
+  - **Purge idempotente scopée au périmètre** : avant ingestion, l'importeur purge la source `workspace` **pour chaque projet qu'il va (ré)écrire** — réindexer un arbre remplace les projets qu'il couvre sans toucher aux autres, et sans jamais empiler de doublons quel que soit le nombre de relances (le mode `--sans-purge` qui permettait l'accumulation a été retiré). Repli sûr : un fichier sans projet (aucun `--projet-defaut`) → purge totale de la source.
+  - CLI `mmcp import markdown-tree <racine>` (options `--inclure-refs`, `--projet-base`, `--projet-defaut`)
   - **Dérivation projet en profondeur 1** sous une base (`projets/<x>` → `<x>` ; familles au niveau famille) — la granularité sous-projet (aligner sur le registry) reste un raffinement à venir
 
 ## LSP

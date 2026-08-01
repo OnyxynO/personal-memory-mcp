@@ -153,7 +153,6 @@ class ImporteurMarkdownTree(ImporteurBase):
         _projet_base: Répertoire base pour la dérivation du projet.
         _projet_defaut: Projet attribué aux fichiers hors de la base.
         _max_chars: Taille maximale d'un chunk.
-        _purger: Si True, purge la source "workspace" avant l'ingestion (idempotence).
     """
 
     SOURCE = "workspace"
@@ -165,7 +164,6 @@ class ImporteurMarkdownTree(ImporteurBase):
         projet_base: str = "projets",
         projet_defaut: str | None = None,
         max_chars: int = MAX_CHARS_DEFAUT,
-        purger: bool = True,
     ):
         """Initialise l'importeur.
 
@@ -175,14 +173,12 @@ class ImporteurMarkdownTree(ImporteurBase):
             projet_base: Base de dérivation du projet (défaut: "projets").
             projet_defaut: Projet des fichiers hors base (défaut: None).
             max_chars: Taille maximale d'un chunk (défaut: 2000).
-            purger: Purger la source "workspace" avant ingestion (défaut: True).
         """
         self._service = service
         self._exclusions = exclusions
         self._projet_base = projet_base
         self._projet_defaut = projet_defaut
         self._max_chars = max_chars
-        self._purger = purger
 
     def _parcourir(self, racine: Path) -> list[Path]:
         """Liste les fichiers `.md` sous racine, en sautant les répertoires exclus.
@@ -222,10 +218,25 @@ class ImporteurMarkdownTree(ImporteurBase):
 
         debut = time.monotonic()
         res = ResultatImport()
-        if self._purger:
-            self._service.purger_source(self.SOURCE)
+        fichiers = self._parcourir(racine)
 
-        for fichier in self._parcourir(racine):
+        # Purge idempotente, scopée aux projets du périmètre : ré-indexer un
+        # arbre remplace les projets qu'il couvre sans toucher aux autres déjà
+        # indexés, et sans jamais empiler de doublons quel que soit le nombre de
+        # relances. Si un fichier n'a pas de projet (projet_defaut absent), le
+        # scope est indéterminé → repli sûr sur la purge totale de la source
+        # (toujours idempotente, jamais une purge mal ciblée).
+        projets_perimetre = {
+            deriver_projet(f.relative_to(racine).as_posix(), self._projet_base, self._projet_defaut)
+            for f in fichiers
+        }
+        if None in projets_perimetre or "" in projets_perimetre:
+            self._service.purger_source(self.SOURCE)
+        else:
+            for projet_p in projets_perimetre:
+                self._service.purger_source(self.SOURCE, projet=projet_p)
+
+        for fichier in fichiers:
             rel = fichier.relative_to(racine).as_posix()
             projet = deriver_projet(rel, self._projet_base, self._projet_defaut)
             try:
