@@ -3,6 +3,7 @@
 Purs SQLite + sqlite-vec (vecteurs factices), aucun appel réseau.
 """
 
+import math
 import sqlite3
 from pathlib import Path
 
@@ -13,6 +14,29 @@ def _storage(tmp_path: Path, dim: int = 4) -> Storage:
     s = Storage(tmp_path / "memory.db")
     s.init_vecteurs(dim)
     return s
+
+
+def _norm(v: list[float]) -> list[float]:
+    n = math.sqrt(sum(x * x for x in v))
+    return [x / n for x in v]
+
+
+def test_recherche_scopee_pas_evincee_par_voisins_hors_projet(tmp_path: Path) -> None:
+    # Éviction : de nombreux chunks d'un gros projet sont plus proches de la
+    # requête que le bon match d'un petit projet. Avec un KNN limité à top_k
+    # AVANT le filtre projet, ce match tombe hors du top_k global et la
+    # recherche scopée le rate (retombe sur du bruit / rien). Le KNN doit
+    # ratisser plus large quand un filtre est actif.
+    s = _storage(tmp_path)
+    q = [1.0, 0.0, 0.0, 0.0]
+    s.inserer_fait("match petit", "doc", "workspace", _norm([0.85, 0.53, 0.0, 0.0]), projet="petit")
+    for i in range(6):  # 6 voisins du gros projet, tous plus proches que le match
+        s.inserer_fait(f"bruit {i}", "doc", "workspace", _norm([1.0, 0.02 * (i + 1), 0.0, 0.0]), projet="gros")
+
+    res = s.rechercher(q, top_k=3, projet="petit")
+    assert res, "le match du petit projet doit être trouvé malgré les voisins du gros projet"
+    assert res[0]["contenu"] == "match petit"
+    assert res[0]["score"] > 0.7  # vrai cosinus ~0.85, pas évincé
 
 
 def test_projet_persiste_et_filtre_la_recherche_vectorielle(tmp_path: Path) -> None:

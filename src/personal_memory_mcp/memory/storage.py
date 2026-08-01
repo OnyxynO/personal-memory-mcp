@@ -357,17 +357,37 @@ class Storage:
         if projet:
             conditions.append("f.projet = ?")
             params.append(projet)
-        sql = f"""
-            SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
-                   f.score_importance, v.distance
-            FROM faits_vec v
-            JOIN faits f ON f.id = v.rowid
-            WHERE {" AND ".join(conditions)}
-              AND v.embedding MATCH ?
-              AND k = ?
-            ORDER BY v.distance
-        """
-        rows = self._conn.execute(sql, (*params, blob, top_k)).fetchall()
+
+        # sqlite-vec applique `k` au KNN (MATCH) AVANT les filtres SQL et plafonne
+        # k à 4096 : les bons voisins d'un sous-ensemble filtré minoritaire sont
+        # évincés par des voisins globaux hors filtre → la recherche scopée rate
+        # ses meilleurs matchs. Quand un filtre (catégorie/projet) est actif, on
+        # calcule donc la distance cosinus SCALAIRE (`vec_distance_cosine`) sur le
+        # sous-ensemble filtré — exact, sans limite de k, scan des seuls vecteurs
+        # retenus. Sans filtre, le KNN ANN rapide (MATCH + k) reste préférable.
+        if categorie or projet:
+            sql = f"""
+                SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
+                       f.score_importance, vec_distance_cosine(v.embedding, ?) AS distance
+                FROM faits_vec v
+                JOIN faits f ON f.id = v.rowid
+                WHERE {" AND ".join(conditions)}
+                ORDER BY distance
+                LIMIT ?
+            """
+            rows = self._conn.execute(sql, (blob, *params, top_k)).fetchall()
+        else:
+            sql = f"""
+                SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
+                       f.score_importance, v.distance
+                FROM faits_vec v
+                JOIN faits f ON f.id = v.rowid
+                WHERE {" AND ".join(conditions)}
+                  AND v.embedding MATCH ?
+                  AND k = ?
+                ORDER BY v.distance
+            """
+            rows = self._conn.execute(sql, (*params, blob, top_k)).fetchall()
 
         # Mise à jour date_derniere_utilisation
         ids = [r["id"] for r in rows]
