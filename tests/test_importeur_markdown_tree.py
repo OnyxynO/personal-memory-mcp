@@ -53,6 +53,23 @@ def test_decouper_redecoupe_les_sections_longues() -> None:
     assert all(ancre == "t" for ancre, _ in sections)
 
 
+def test_decouper_liste_a_puces_dense_respecte_max_chars() -> None:
+    # Régression : une longue liste à puces a des items séparés par des '\n'
+    # simples, aucun '\n\n'. Le redecoupage par paragraphes ne suffit pas ;
+    # aucun chunk ne doit dépasser max_chars (sinon rejet 400 à l'embedding).
+    corps = "\n".join(f"- item {i} " + "y" * 60 for i in range(40))  # > 500, zéro '\n\n'
+    sections = decouper_en_sections(f"# T\n{corps}\n", max_chars=500)
+    assert all(len(texte) <= 500 for _, texte in sections)
+
+
+def test_decouper_ligne_unique_geante_respecte_max_chars() -> None:
+    # Cas limite : une seule ligne sans aucun séparateur, plus longue que
+    # max_chars. Doit être coupée en tranches dures <= max_chars.
+    corps = "z" * 5000
+    sections = decouper_en_sections(f"# T\n{corps}\n", max_chars=500)
+    assert all(len(texte) <= 500 for _, texte in sections)
+
+
 def test_deriver_projet_profondeur_1() -> None:
     assert deriver_projet("projets/sand/CLAUDE.md", "projets", "ouroboros") == "sand"
     assert deriver_projet("projets/projectmatch/datamatch/x.md", "projets", "ouroboros") == "projectmatch"

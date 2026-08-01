@@ -43,29 +43,49 @@ def _slug(titre: str) -> str:
 
 
 def _redecouper(texte: str, max_chars: int) -> list[str]:
-    """Redécoupe un texte trop long en blocs <= max_chars, aux frontières de paragraphes.
+    """Redécoupe un texte trop long en blocs <= max_chars.
+
+    Découpe hiérarchique : à la ligne (ce qui préserve aussi bien les paragraphes
+    séparés par `\\n\\n` que les items d'une liste à puces séparés par `\\n`), puis
+    en tranches dures pour une ligne unique plus longue que `max_chars`. Les
+    fragments atomiques ainsi obtenus sont regroupés glouton en blocs `<= max_chars`.
+
+    Un découpage limité aux frontières de paragraphes (`\\n\\n`) laisserait passer
+    une longue liste à puces (aucun `\\n\\n`) en un seul bloc surdimensionné, rejeté
+    ensuite par le modèle d'embedding (HTTP 400).
 
     Args:
         texte: Texte de la section.
         max_chars: Taille maximale d'un bloc.
 
     Returns:
-        Liste de blocs. Un seul élément si le texte tient déjà dans max_chars.
+        Liste de blocs, chacun de longueur <= max_chars. Un seul élément si le texte
+        tient déjà dans max_chars.
     """
     if len(texte) <= max_chars:
         return [texte]
+
+    # Fragments atomiques garantis <= max_chars : par ligne, puis tranches dures.
+    unites: list[str] = []
+    for ligne in texte.split("\n"):
+        if len(ligne) <= max_chars:
+            unites.append(ligne)
+        else:
+            for i in range(0, len(ligne), max_chars):
+                unites.append(ligne[i : i + max_chars])
+
     blocs: list[str] = []
     courant: list[str] = []
     taille = 0
-    for para in texte.split("\n\n"):
-        ajout = len(para) + 2
+    for unite in unites:
+        ajout = len(unite) + 1  # séparateur '\n'
         if courant and taille + ajout > max_chars:
-            blocs.append("\n\n".join(courant))
+            blocs.append("\n".join(courant))
             courant, taille = [], 0
-        courant.append(para)
+        courant.append(unite)
         taille += ajout
     if courant:
-        blocs.append("\n\n".join(courant))
+        blocs.append("\n".join(courant))
     return blocs
 
 
