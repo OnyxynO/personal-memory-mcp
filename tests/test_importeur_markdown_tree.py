@@ -172,6 +172,28 @@ def test_importer_rapporte_la_progression_par_fichier(tmp_path: Path) -> None:
     assert all(t == total for _, t in appels)
 
 
+def test_parcours_exclut_venv_et_environnements(tmp_path: Path) -> None:
+    # Les dossiers d'environnement/dépendances (.venv, site-packages, caches)
+    # ne doivent jamais être indexés : ce serait de la doc tierce polluant
+    # l'index. Régression : le premier reindex avait avalé 419 chunks du .venv.
+    proj = tmp_path / "projets" / "p"
+    proj.mkdir(parents=True)
+    (proj / "C.md").write_text("# P\nvrai contenu\n", encoding="utf-8")
+    dep = proj / ".venv" / "lib" / "site-packages" / "outil"
+    dep.mkdir(parents=True)
+    (dep / "doc.md").write_text("# Dep\ndoc tierce\n", encoding="utf-8")
+
+    svc = _ServiceTest(tmp_path / "m.db")
+    ImporteurMarkdownTree(svc, projet_defaut="ouroboros").importer(str(tmp_path))
+
+    details = {
+        r["source_detail"]
+        for r in svc._storage._conn.execute("SELECT source_detail FROM faits").fetchall()
+    }
+    assert any("C.md" in d for d in details), "le vrai contenu doit être indexé"
+    assert not any(".venv" in d for d in details), "le .venv ne doit pas être indexé"
+
+
 def test_importer_racine_absente_leve(tmp_path: Path) -> None:
     svc = _ServiceTest(tmp_path / "m.db")
     imp = ImporteurMarkdownTree(svc)

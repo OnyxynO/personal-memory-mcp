@@ -20,7 +20,25 @@ from personal_memory_mcp.importeurs.base import ImporteurBase, ResultatImport
 from personal_memory_mcp.memory.service import MemoryService
 
 EXCLUSIONS_DEFAUT: frozenset[str] = frozenset(
-    {".git", "node_modules", "vendor", "dist", "build", ".superpowers", "__pycache__"}
+    {
+        ".git",
+        "node_modules",
+        "vendor",
+        "dist",
+        "build",
+        ".superpowers",
+        "__pycache__",
+        # Environnements virtuels et dépendances Python : leur doc est tierce
+        # et polluerait l'index (un reindex a déjà avalé 419 chunks d'un .venv).
+        ".venv",
+        "venv",
+        "site-packages",
+        ".tox",
+        # Caches d'outillage : jamais du contenu utile.
+        ".pytest_cache",
+        ".ruff_cache",
+        ".mypy_cache",
+    }
 )
 MAX_CHARS_DEFAUT = 2000
 
