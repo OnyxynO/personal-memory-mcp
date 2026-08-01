@@ -3,10 +3,10 @@
 from pathlib import Path
 from urllib.parse import urlparse
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from personal_memory_mcp.memory.service import MemoryService
 
-mcp = FastMCP("personal-memory")
+mcp = MCPServer("personal-memory")
 _service: MemoryService | None = None
 
 
