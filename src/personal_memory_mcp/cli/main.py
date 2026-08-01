@@ -148,6 +148,10 @@ def import_cmd(
             EXCLUSIONS_DEFAUT,
             ImporteurMarkdownTree,
         )
+        from personal_memory_mcp.importeurs.verrou import (
+            ImportDejaEnCours,
+            verrou_import,
+        )
         exclusions = EXCLUSIONS_DEFAUT if inclure_refs else (EXCLUSIONS_DEFAUT | {"_refs"})
         importeur = ImporteurMarkdownTree(
             svc,
@@ -156,25 +160,32 @@ def import_cmd(
             projet_defaut=projet_defaut,
         )
         console.print(f"\nIndexation de [bold]{chemin}[/bold] (découpage + embedding)...")
-        with Progress(
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            MofNCompleteColumn(),
-            TaskProgressColumn(),
-            TimeRemainingColumn(),
-            console=console,
-        ) as progress:
-            tache = progress.add_task("Indexation", total=None)
-            try:
-                res = importeur.importer(
-                    chemin,
-                    on_progress=lambda traites, total: progress.update(
-                        tache, completed=traites, total=total
-                    ),
-                )
-            except (FileNotFoundError, ValueError) as e:
-                console.print(f"[red]Erreur : {e}[/red]")
-                raise typer.Exit(1)
+        # Verrou inter-process : un seul import à la fois (anti-parallélisme —
+        # contention SQLite, pression RAM, doublons de course).
+        chemin_lock = Path.home() / ".personal-memory" / "import.lock"
+        try:
+            with verrou_import(chemin_lock), Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                MofNCompleteColumn(),
+                TaskProgressColumn(),
+                TimeRemainingColumn(),
+                console=console,
+            ) as progress:
+                tache = progress.add_task("Indexation", total=None)
+                try:
+                    res = importeur.importer(
+                        chemin,
+                        on_progress=lambda traites, total: progress.update(
+                            tache, completed=traites, total=total
+                        ),
+                    )
+                except (FileNotFoundError, ValueError) as e:
+                    console.print(f"[red]Erreur : {e}[/red]")
+                    raise typer.Exit(1)
+        except ImportDejaEnCours as e:
+            console.print(f"[red]{e}[/red]")
+            raise typer.Exit(1)
 
         console.print(f"  [green]+ {res['ajoutes']} chunks indexés[/green]")
         if res.get("nb_erreurs"):
