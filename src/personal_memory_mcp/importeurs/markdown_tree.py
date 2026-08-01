@@ -13,6 +13,7 @@ projet, projet par défaut) sont des paramètres, pas des valeurs codées en dur
 import re
 import time
 import unicodedata
+from collections.abc import Callable
 from pathlib import Path
 
 from personal_memory_mcp.importeurs.base import ImporteurBase, ResultatImport
@@ -197,11 +198,18 @@ class ImporteurMarkdownTree(ImporteurBase):
             retenus.append(chemin)
         return retenus
 
-    def importer(self, chemin: str | None = None) -> dict:
+    def importer(
+        self,
+        chemin: str | None = None,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> dict:
         """Importe l'arbre Markdown enraciné en `chemin`.
 
         Args:
             chemin: Racine à indexer (obligatoire pour cet importeur).
+            on_progress: Callback optionnel de progression, appelé une fois par
+                fichier avec `(fichiers_traités, total_fichiers)`. Permet à
+                l'appelant (CLI) d'afficher une barre de progression.
 
         Returns:
             Dict de `ResultatImport.as_dict()` (ajoutes, dedupliques, duree, nb_erreurs).
@@ -236,7 +244,8 @@ class ImporteurMarkdownTree(ImporteurBase):
             for projet_p in projets_perimetre:
                 self._service.purger_source(self.SOURCE, projet=projet_p)
 
-        for fichier in fichiers:
+        total = len(fichiers)
+        for i, fichier in enumerate(fichiers, start=1):
             rel = fichier.relative_to(racine).as_posix()
             projet = deriver_projet(rel, self._projet_base, self._projet_defaut)
             try:
@@ -244,22 +253,24 @@ class ImporteurMarkdownTree(ImporteurBase):
             except (OSError, UnicodeDecodeError) as e:
                 res.nb_erreurs += 1
                 res.erreurs.append(f"{rel}: {e}")
-                continue
-            for ancre, texte in decouper_en_sections(contenu, self._max_chars):
-                detail = f"{rel}#{ancre}" if ancre else rel
-                try:
-                    self._service.add(
-                        texte,
-                        categorie="doc",
-                        source=self.SOURCE,
-                        projet=projet,
-                        source_detail=detail,
-                        dedup=False,
-                    )
-                    res.ajoutes += 1
-                except Exception as e:  # noqa: BLE001 — un chunk KO ne doit pas tout arrêter
-                    res.nb_erreurs += 1
-                    res.erreurs.append(f"{detail}: {e}")
+            else:
+                for ancre, texte in decouper_en_sections(contenu, self._max_chars):
+                    detail = f"{rel}#{ancre}" if ancre else rel
+                    try:
+                        self._service.add(
+                            texte,
+                            categorie="doc",
+                            source=self.SOURCE,
+                            projet=projet,
+                            source_detail=detail,
+                            dedup=False,
+                        )
+                        res.ajoutes += 1
+                    except Exception as e:  # noqa: BLE001 — un chunk KO ne doit pas tout arrêter
+                        res.nb_erreurs += 1
+                        res.erreurs.append(f"{detail}: {e}")
+            if on_progress is not None:
+                on_progress(i, total)
 
         res.duree = time.monotonic() - debut
         return res.as_dict()

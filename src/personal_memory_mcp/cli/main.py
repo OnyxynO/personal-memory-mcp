@@ -5,6 +5,14 @@ from typing import Annotated, Optional
 
 import typer
 from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    TaskProgressColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
 
 app = typer.Typer(
@@ -148,9 +156,22 @@ def import_cmd(
             projet_defaut=projet_defaut,
         )
         console.print(f"\nIndexation de [bold]{chemin}[/bold] (découpage + embedding)...")
-        with console.status("Indexation en cours..."):
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TaskProgressColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            tache = progress.add_task("Indexation", total=None)
             try:
-                res = importeur.importer(chemin)
+                res = importeur.importer(
+                    chemin,
+                    on_progress=lambda traites, total: progress.update(
+                        tache, completed=traites, total=total
+                    ),
+                )
             except (FileNotFoundError, ValueError) as e:
                 console.print(f"[red]Erreur : {e}[/red]")
                 raise typer.Exit(1)

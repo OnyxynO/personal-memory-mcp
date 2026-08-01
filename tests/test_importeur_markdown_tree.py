@@ -157,6 +157,21 @@ def test_reindex_meme_perimetre_ne_cree_pas_de_doublon(tmp_path: Path) -> None:
     assert svc._storage.compter()["total"] == total
 
 
+def test_importer_rapporte_la_progression_par_fichier(tmp_path: Path) -> None:
+    # L'importeur appelle on_progress(traités, total) une fois par fichier :
+    # total constant, compteur croissant de 1 jusqu'à total (observabilité).
+    ws = _arbre(tmp_path)  # 2 fichiers retenus (sand/CLAUDE.md + INDEX.md)
+    svc = _ServiceTest(tmp_path / "m.db")
+    appels: list[tuple[int, int]] = []
+    ImporteurMarkdownTree(svc, projet_defaut="ouroboros").importer(
+        str(ws), on_progress=lambda traites, total: appels.append((traites, total))
+    )
+    assert appels, "on_progress doit être appelé au moins une fois"
+    total = appels[-1][1]
+    assert [traites for traites, _ in appels] == list(range(1, total + 1))
+    assert all(t == total for _, t in appels)
+
+
 def test_importer_racine_absente_leve(tmp_path: Path) -> None:
     svc = _ServiceTest(tmp_path / "m.db")
     imp = ImporteurMarkdownTree(svc)
