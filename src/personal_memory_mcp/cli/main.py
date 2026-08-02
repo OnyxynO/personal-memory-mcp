@@ -1,5 +1,6 @@
 """CLI mmcp — Commandes typer avec rich."""
 
+import json
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -206,11 +207,18 @@ def search(
     top_k: int = typer.Option(5, "--top-k", "-k", help="Nombre de résultats"),
     seuil: float = typer.Option(0.20, "--seuil", "-s", help="Seuil de similarité minimum"),
     projet: Annotated[Optional[str], typer.Option("--projet", "-P", help="Filtrer par projet")] = None,
+    json_: bool = typer.Option(False, "--json", help="Sortie JSON machine (sans rich)"),
 ):
     """Recherche sémantique dans la mémoire."""
     svc = _service()
     resultats = svc.search(query, top_k=top_k, projet=projet)
     filtres = [r for r in resultats if r["score"] >= seuil]
+
+    if json_:
+        champs = ("id", "contenu", "categorie", "source", "score")
+        sortie = [{k: r[k] for k in champs if k in r} for r in filtres]
+        typer.echo(json.dumps(sortie, ensure_ascii=False))
+        return
 
     if not filtres:
         console.print("[dim]Aucun résultat au-dessus du seuil.[/dim]")
