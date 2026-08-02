@@ -120,6 +120,7 @@ uv run pytest -v            # avec détail par test
   - **Verrou anti-parallélisme** (`importeurs/verrou.py`) : un seul `import markdown-tree` à la fois (verrou `flock` sur `~/.personal-memory/import.lock`). Un 2ᵉ import concurrent est **refusé immédiatement** (`ImportDejaEnCours`), pas mis en file. Protège des deux protections complémentaires à l'idempotence : contention SQLite (« database is locked »), doublons de course (purge+insert entrelacés), empilement RAM (N process Python). Refus plutôt qu'attente = pas d'empilement. Inter-process car le risque vient de plusieurs `mmcp import`, pas d'un singleton mémoire.
   - CLI `mmcp import markdown-tree <racine>` (options `--inclure-refs`, `--projet-base`, `--projet-defaut`)
   - **Dérivation projet en profondeur 1** sous une base (`projets/<x>` → `<x>` ; familles au niveau famille) — la granularité sous-projet (aligner sur le registry) reste un raffinement à venir
+- ✅ Filtre `--source` sur `search` (2026-08-02, dette §10 de l'Atelier) : `search(..., source=None)` traverse CLI/MCP → `Storage.rechercher`/`rechercher_fts` (même patron que `--projet`, inclus dans le chemin scalaire `vec_distance_cosine`). Permet de scoper une recherche au **corpus curé** (`--source workspace`) sans se faire noyer par les facts d'étude de code ou d'import de conversation qui partagent la DB. Consommé par `atelier role` (briefing scopé). Tests : `tests/test_storage_source.py`.
 
 ## LSP
 
@@ -189,6 +190,7 @@ uv run mmcp import claude ~/Downloads/export.zip
 uv run mmcp import chatgpt ~/Downloads/export.zip
 uv run mmcp import markdown-tree "/chemin/workspace"  # indexe un arbre .md (chunk-and-embed, sans LLM)
 uv run mmcp search "requête" --projet sand       # recherche scopée par projet
+uv run mmcp search "requête" --source workspace  # recherche scopée au corpus curé (arbre markdown)
 uv run mmcp export                               # JSON vers stdout
 uv run mmcp export --format csv --sortie faits.csv
 uv run mmcp export --format json --categorie stack

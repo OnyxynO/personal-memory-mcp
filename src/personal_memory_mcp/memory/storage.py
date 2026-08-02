@@ -329,6 +329,7 @@ class Storage:
         top_k: int = 5,
         categorie: str | None = None,
         projet: str | None = None,
+        source: str | None = None,
     ) -> list[dict[str, Any]]:
         """Recherche vectorielle (k-plus proches voisins) dans les faits.
 
@@ -341,6 +342,7 @@ class Storage:
             top_k: Nombre de résultats à retourner (défaut: 5).
             categorie: Filtre optionnel par catégorie (si None, tous les faits).
             projet: Filtre optionnel par projet (si None, tous les projets).
+            source: Filtre optionnel par source (si None, toutes les sources).
 
         Returns:
             Liste de dicts avec clés: id, contenu, categorie, source, score.
@@ -357,6 +359,9 @@ class Storage:
         if projet:
             conditions.append("f.projet = ?")
             params.append(projet)
+        if source:
+            conditions.append("f.source = ?")
+            params.append(source)
 
         # sqlite-vec applique `k` au KNN (MATCH) AVANT les filtres SQL et plafonne
         # k à 4096 : les bons voisins d'un sous-ensemble filtré minoritaire sont
@@ -365,7 +370,7 @@ class Storage:
         # calcule donc la distance cosinus SCALAIRE (`vec_distance_cosine`) sur le
         # sous-ensemble filtré — exact, sans limite de k, scan des seuls vecteurs
         # retenus. Sans filtre, le KNN ANN rapide (MATCH + k) reste préférable.
-        if categorie or projet:
+        if categorie or projet or source:
             sql = f"""
                 SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
                        f.score_importance, vec_distance_cosine(v.embedding, ?) AS distance
@@ -417,6 +422,7 @@ class Storage:
         top_k: int = 5,
         categorie: str | None = None,
         projet: str | None = None,
+        source: str | None = None,
     ) -> list[dict[str, Any]]:
         """Recherche plein-texte BM25 via FTS5 (fallback ou complément vectoriel).
 
@@ -429,6 +435,7 @@ class Storage:
             top_k: Nombre de résultats à retourner (défaut: 5).
             categorie: Filtre optionnel par catégorie.
             projet: Filtre optionnel par projet (si None, tous les projets).
+            source: Filtre optionnel par source (si None, toutes les sources).
 
         Returns:
             Liste de dicts avec clés: id, contenu, categorie, source, score, score_importance.
@@ -448,6 +455,9 @@ class Storage:
         if projet:
             conditions.append("f.projet = ?")
             params.append(projet)
+        if source:
+            conditions.append("f.source = ?")
+            params.append(source)
         sql = f"""
             SELECT f.id, f.contenu, f.categorie, f.source, f.date_creation,
                    f.score_importance, bm25(faits_fts) AS bm25_score

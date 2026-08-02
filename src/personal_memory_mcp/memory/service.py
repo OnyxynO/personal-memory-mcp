@@ -115,6 +115,7 @@ class MemoryService:
         top_k: int = 5,
         categorie: str | None = None,
         projet: str | None = None,
+        source: str | None = None,
     ) -> list[dict[str, Any]]:
         """Recherche hybride (vectorielle + FTS5 fallback) dans la mémoire.
 
@@ -127,18 +128,20 @@ class MemoryService:
             top_k: Nombre de résultats à retourner (défaut: 5).
             categorie: Filtre optionnel par catégorie (si None, tous les faits).
             projet: Filtre optionnel par projet (si None, tous les projets).
+            source: Filtre optionnel par source (si None, toutes les sources).
+                    Ex: "workspace" pour ne cibler que le corpus curé.
 
         Returns:
             Liste de dicts avec clés: id, contenu, categorie, source, score, score_importance.
         """
         [embedding] = self._extracteur.embeddings([query])
         self._assurer_vecteurs_init(embedding)
-        resultats = self._storage.rechercher(embedding, top_k=top_k, categorie=categorie, projet=projet)
+        resultats = self._storage.rechercher(embedding, top_k=top_k, categorie=categorie, projet=projet, source=source)
 
         # Fallback FTS5 si la recherche vectorielle est peu convaincante
         score_max = max((r["score"] for r in resultats), default=0.0)
         if score_max < 0.50:
-            resultats_fts = self._storage.rechercher_fts(query, top_k=top_k, categorie=categorie, projet=projet)
+            resultats_fts = self._storage.rechercher_fts(query, top_k=top_k, categorie=categorie, projet=projet, source=source)
             ids_existants = {r["id"] for r in resultats}
             for r in resultats_fts:
                 if r["id"] not in ids_existants:
