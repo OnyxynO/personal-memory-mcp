@@ -207,11 +207,12 @@ def search(
     top_k: int = typer.Option(5, "--top-k", "-k", help="Nombre de résultats"),
     seuil: float = typer.Option(0.20, "--seuil", "-s", help="Seuil de similarité minimum"),
     projet: Annotated[Optional[str], typer.Option("--projet", "-P", help="Filtrer par projet")] = None,
+    source: Annotated[Optional[str], typer.Option("--source", help="Filtrer par source (ex: workspace pour le corpus curé)")] = None,
     json_: bool = typer.Option(False, "--json", help="Sortie JSON machine (sans rich)"),
 ):
     """Recherche sémantique dans la mémoire."""
     svc = _service()
-    resultats = svc.search(query, top_k=top_k, projet=projet)
+    resultats = svc.search(query, top_k=top_k, projet=projet, source=source)
     filtres = [r for r in resultats if r["score"] >= seuil]
 
     if json_:

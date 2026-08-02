@@ -36,7 +36,11 @@ def _get_service() -> MemoryService:
 
 @mcp.tool()
 def search(
-    query: str, top_k: int = 5, categorie: str | None = None, projet: str | None = None
+    query: str,
+    top_k: int = 5,
+    categorie: str | None = None,
+    projet: str | None = None,
+    source: str | None = None,
 ) -> list[dict]:
     """Recherche sémantique dans la mémoire personnelle.
 
@@ -45,8 +49,10 @@ def search(
         top_k: Nombre de résultats (défaut: 5).
         categorie: Filtre optionnel par catégorie (si None, toutes).
         projet: Filtre optionnel par projet (si None, tous). Ex: "sand", "vigie".
+        source: Filtre optionnel par source (si None, toutes). Ex: "workspace"
+                pour ne cibler que le corpus curé.
     """
-    return _get_service().search(query, top_k=top_k, categorie=categorie, projet=projet)
+    return _get_service().search(query, top_k=top_k, categorie=categorie, projet=projet, source=source)
 
 
 @mcp.tool()
