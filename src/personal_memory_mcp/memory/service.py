@@ -281,7 +281,8 @@ class MemoryService:
         Inverse de `Storage.exporter_faits()` : le texte est la source de vérité,
         les embeddings sont reconstruits localement avec le modèle configuré. Les
         `id` d'origine ne sont pas conservés (réattribués par SQLite) ; catégorie,
-        source, source_detail, projet et score_importance le sont.
+        source, source_detail, projet, score_importance et date_creation le sont
+        (date_creation manquante ou absente → date du restore, en repli).
 
         Les embeddings sont calculés par lots de 32 (principe #8 : jamais un appel
         réseau par fait). Aucune déduplication : la cible d'un restore est une base
@@ -322,6 +323,7 @@ class MemoryService:
                     source_detail=fait.get("source_detail"),
                     score_importance=score if score is not None else 0.5,
                     projet=fait.get("projet"),
+                    date_creation=fait.get("date_creation"),
                 )
             nb_traites += len(lot)
             if callback:

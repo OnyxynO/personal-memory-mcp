@@ -285,6 +285,7 @@ class Storage:
         source_detail: str | None = None,
         score_importance: float = 0.5,
         projet: str | None = None,
+        date_creation: str | None = None,
     ) -> int:
         """Insère un nouveau fait avec son embedding.
 
@@ -299,6 +300,10 @@ class Storage:
             source_detail: Détail optionnel (chemin fichier, session_id, etc.).
             score_importance: Confiance du LLM dans le fait [0.0, 1.0] (défaut: 0.5).
             projet: Projet de rattachement (pour le scoping des requêtes), ou None.
+            date_creation: Horodatage ISO 8601 à consigner ; si `None`, l'instant
+                présent (`_maintenant()`) est utilisé. Permet à un restore de
+                snapshot de préserver la date d'origine plutôt que d'écraser
+                l'historique par la date du restore.
 
         Returns:
             ID du fait inséré (rowid).
@@ -311,7 +316,7 @@ class Storage:
             INSERT INTO faits (contenu, categorie, source, source_detail, projet, date_creation, score_importance)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (contenu, categorie, source, source_detail, projet, _maintenant(), score_importance),
+            (contenu, categorie, source, source_detail, projet, date_creation or _maintenant(), score_importance),
         )
         rowid: int = curseur.lastrowid  # type: ignore[assignment]
         import struct

@@ -64,6 +64,28 @@ def test_importer_faits_restaure_contenu_categorie_source_et_projet(tmp_path: Pa
     assert restaure["categorie"] == "doc"
 
 
+def test_importer_faits_preserve_la_date_de_creation_d_origine(tmp_path: Path) -> None:
+    # `exporter_faits()` produit `date_creation`, mais avant ce correctif
+    # `importer_faits()` ne la transmettait pas à `inserer_fait()` : tous les
+    # faits restaurés portaient la date du restore, alors que l'info est dans
+    # l'archive.
+    svc, _ = _service(tmp_path)
+
+    svc.importer_faits([_fait("chunk daté", **{"date_creation": "2025-01-15T08:30:00+00:00"})])
+
+    [restaure] = svc._storage.exporter_faits()
+    assert restaure["date_creation"] == "2025-01-15T08:30:00+00:00"
+
+
+def test_importer_faits_sans_date_creation_retombe_sur_la_date_du_restore(tmp_path: Path) -> None:
+    svc, _ = _service(tmp_path)
+
+    svc.importer_faits([_fait("sans date", date_creation=None)])
+
+    [restaure] = svc._storage.exporter_faits()
+    assert restaure["date_creation"] is not None
+
+
 def test_importer_faits_embarque_par_lots_de_32(tmp_path: Path) -> None:
     svc, faux = _service(tmp_path)
 
