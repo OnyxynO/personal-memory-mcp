@@ -194,6 +194,8 @@ uv run mmcp search "requête" --source workspace  # recherche scopée au corpus 
 uv run mmcp export                               # JSON vers stdout
 uv run mmcp export --format csv --sortie faits.csv
 uv run mmcp export --format json --categorie stack
+uv run mmcp export --complet --format json --sortie faits.json  # export fidèle (tous champs, dont projet)
+uv run mmcp import facts faits.json                             # restore : ré-embarque tous les faits (Ollama requis)
 uv run mmcp backup         # Sauvegarde vers ~/.personal-memory/backups/
 uv run mmcp restore        # Restaure depuis une sauvegarde
 uv run mmcp migrate-embeddings --modele qwen3-embedding:0.6b

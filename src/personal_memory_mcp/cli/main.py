@@ -29,6 +29,24 @@ def _service():
     return MemoryService()
 
 
+def charger_faits_json(chemin: Path) -> list[dict]:
+    """Lit un export logique de faits (`mmcp export --complet`).
+
+    Args:
+        chemin: Fichier JSON contenant une liste d'objets faits.
+
+    Returns:
+        La liste de faits.
+
+    Raises:
+        ValueError: Si le document n'est pas une liste JSON.
+    """
+    donnees = json.loads(chemin.read_text(encoding="utf-8"))
+    if not isinstance(donnees, list):
+        raise ValueError("Format invalide : le fichier doit contenir une liste JSON de faits.")
+    return donnees
+
+
 @app.command()
 def serve():
     """Lance le serveur MCP en mode stdio (utilisé par les clients MCP)."""
@@ -64,11 +82,12 @@ def setup():
 
 @app.command("import")
 def import_cmd(
-    source: str = typer.Argument(help="Source : claude-code | claude | chatgpt | markdown-tree"),
+    source: str = typer.Argument(help="Source : claude-code | claude | chatgpt | markdown-tree | facts"),
     chemin: Annotated[Optional[str], typer.Argument(help="Chemin (fichier ZIP, ou racine pour markdown-tree)")] = None,
     inclure_refs: bool = typer.Option(False, "--inclure-refs", help="markdown-tree : indexer aussi _refs/ (repos tiers)"),
     projet_base: str = typer.Option("projets", "--projet-base", help="markdown-tree : base de dérivation du projet"),
     projet_defaut: Annotated[Optional[str], typer.Option("--projet-defaut", help="markdown-tree : projet des fichiers hors base")] = None,
+    force: bool = typer.Option(False, "--force", "-f", help="facts : importer même si la base contient déjà des faits"),
 ):
     """Importe des faits depuis un historique IA ou un arbre Markdown."""
     svc = _service()
@@ -92,6 +111,73 @@ def import_cmd(
         if res.get("nb_erreurs"):
             console.print(f"  [yellow]! {res['nb_erreurs']} erreurs[/yellow]")
         console.print(f"  [bold]✓ Terminé en {res['duree']}s[/bold]\n")
+
+    elif source == "facts":
+        import time
+
+        if not chemin:
+            console.print("[red]Chemin du JSON requis : 'mmcp import facts <faits.json>'[/red]")
+            raise typer.Exit(1)
+        chemin_json = Path(chemin).expanduser()
+        if not chemin_json.exists():
+            console.print(f"[red]Fichier introuvable : {chemin_json}[/red]")
+            raise typer.Exit(1)
+
+        # Pré-check Ollama : sans lui, le re-embed casse en cours de route avec
+        # une erreur réseau opaque, après avoir déjà inséré une partie des faits.
+        # `verifier_disponibilite` retourne {nom_modele: disponible} — seul le
+        # modèle d'embedding est utilisé par `importer_faits` (pas d'extraction LLM).
+        modele_embeddings = svc._extracteur._modele_embeddings
+        dispo = svc._extracteur.verifier_disponibilite()
+        if not dispo.get(modele_embeddings):
+            console.print("[red]Ollama est injoignable — le ré-embarquement des faits est impossible.[/red]")
+            console.print("[yellow]Démarrer Ollama (`ollama serve`) puis relancer cette commande.[/yellow]")
+            raise typer.Exit(1)
+
+        total_existant = svc._storage.compter()["total"]
+        if total_existant and not force:
+            console.print(f"[red]La base contient déjà {total_existant} faits.[/red]")
+            console.print("[yellow]Un restore vise une base neuve. Relancer avec --force pour ajouter par-dessus.[/yellow]")
+            raise typer.Exit(1)
+
+        try:
+            faits = charger_faits_json(chemin_json)
+        except ValueError as e:
+            console.print(f"[red]{e}[/red]")
+            raise typer.Exit(1)
+
+        console.print(f"\nRestauration de [bold]{len(faits)}[/bold] faits depuis {chemin_json.name}")
+        console.print("[dim]Chaque fait est ré-embarqué localement — comptez plusieurs minutes.[/dim]\n")
+
+        debut = time.time()
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TaskProgressColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progression:
+            tache = progression.add_task("Ré-embarquement", total=len(faits))
+            res = svc.importer_faits(
+                faits,
+                callback=lambda n, t: progression.update(tache, completed=n, total=t),
+            )
+        duree = round(time.time() - debut, 1)
+
+        svc._storage.enregistrer_import(
+            type="facts",
+            chemin=str(chemin_json),
+            nb_ajoutes=res["importes"],
+            nb_dedupliques=0,
+            nb_mis_a_jour=0,
+            duree=duree,
+        )
+
+        console.print(f"\n  [green]+ {res['importes']} faits restaurés[/green]")
+        if res["ignores"]:
+            console.print(f"  [yellow]! {res['ignores']} entrées ignorées (contenu vide)[/yellow]")
+        console.print(f"  [bold]✓ Terminé en {duree}s[/bold]\n")
 
     elif source == "claude":
         if not chemin:
@@ -196,7 +282,7 @@ def import_cmd(
     else:
         console.print(
             f"[red]Source inconnue : '{source}'. Valeurs valides : "
-            f"claude-code, claude, chatgpt, markdown-tree[/red]"
+            f"claude-code, claude, chatgpt, markdown-tree, facts[/red]"
         )
         raise typer.Exit(1)
 

@@ -89,3 +89,27 @@ def test_importer_faits_signale_la_progression(tmp_path: Path) -> None:
     svc.importer_faits([_fait(f"fait {i}") for i in range(40)], callback=lambda n, t: vus.append((n, t)))
 
     assert vus == [(32, 40), (40, 40)]
+
+
+def test_charger_faits_json_rejette_un_document_qui_n_est_pas_une_liste(tmp_path: Path) -> None:
+    from personal_memory_mcp.cli.main import charger_faits_json
+
+    chemin = tmp_path / "faits.json"
+    chemin.write_text('{"contenu": "un objet, pas une liste"}', encoding="utf-8")
+
+    try:
+        charger_faits_json(chemin)
+    except ValueError as e:
+        assert "liste" in str(e)
+    else:
+        raise AssertionError("un document non-liste doit être rejeté")
+
+
+def test_charger_faits_json_lit_une_liste_de_faits(tmp_path: Path) -> None:
+    from personal_memory_mcp.cli.main import charger_faits_json
+
+    chemin = tmp_path / "faits.json"
+    chemin.write_text('[{"contenu": "un fait", "categorie": "doc"}]', encoding="utf-8")
+
+    faits = charger_faits_json(chemin)
+    assert [f["contenu"] for f in faits] == ["un fait"]
