@@ -457,6 +457,7 @@ def export(
     format: str = typer.Option("json", "--format", "-f", help="Format de sortie : json ou csv"),
     categorie: Annotated[Optional[str], typer.Option("--categorie", "-c")] = None,
     sortie: Annotated[Optional[str], typer.Option("--sortie", "-o", help="Fichier de destination (stdout si absent)")] = None,
+    complet: bool = typer.Option(False, "--complet", help="Export fidèle (tous champs dont projet, sans plafond) — pour un snapshot portable"),
 ):
     """Exporte les faits en JSON ou CSV (stdout ou fichier)."""
     import csv
@@ -464,9 +465,18 @@ def export(
     import json as json_mod
 
     svc = _service()
-    stats = svc._storage.compter()
-    total = stats["total"]
-    faits = svc._storage.lister(categorie=categorie, limite=total or 1000)
+    if complet:
+        if format != "json":
+            console.print("[red]--complet exige --format json (le round-trip du snapshot est JSON).[/red]")
+            raise typer.Exit(1)
+        if categorie:
+            console.print("[red]--complet exporte toute la mémoire : --categorie n'est pas applicable.[/red]")
+            raise typer.Exit(1)
+        faits = svc._storage.exporter_faits()
+    else:
+        stats = svc._storage.compter()
+        total = stats["total"]
+        faits = svc._storage.lister(categorie=categorie, limite=total or 1000)
 
     if format == "csv":
         buffer = io.StringIO()

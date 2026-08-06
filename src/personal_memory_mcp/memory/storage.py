@@ -562,6 +562,32 @@ class Storage:
             rows = self._conn.execute(sql, (limite, offset)).fetchall()
         return [dict(r) for r in rows]
 
+    def exporter_faits(self) -> list[dict[str, Any]]:
+        """Exporte tous les faits actifs, tous champs logiques, sans vecteur.
+
+        Chemin dédié au snapshot portable : contrairement à `lister()` (qui
+        alimente l'outil MCP `list_facts`, sensible au volume de tokens), il
+        n'est plafonné par aucune limite et conserve la colonne `projet` —
+        indispensable au scoping des requêtes après restauration.
+
+        Les embeddings ne sont jamais exportés : ils sont reconstruits au
+        restore avec le modèle local (le texte est la source de vérité, cf.
+        instabilité des vecteurs entre versions d'Ollama, ollama/ollama#14449).
+
+        Returns:
+            Liste de dicts triés par id croissant, clés : id, contenu, categorie,
+            source, source_detail, projet, date_creation, score_importance.
+        """
+        rows = self._conn.execute(
+            """
+            SELECT id, contenu, categorie, source, source_detail, projet,
+                   date_creation, score_importance
+            FROM faits WHERE actif = 1
+            ORDER BY id ASC
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def obtenir_par_id(self, id: int) -> dict[str, Any] | None:
         """Retourne un fait actif par son identifiant.
 
