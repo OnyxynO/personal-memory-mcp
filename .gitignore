@@ -12,3 +12,6 @@ infra/
 imports/
 .DS_Store
 mcts_analysis/
+
+# Espace de travail SDD (paquets de revue, artefacts de plan) — jamais versionné
+.superpowers/
