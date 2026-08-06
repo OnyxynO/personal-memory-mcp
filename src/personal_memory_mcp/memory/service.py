@@ -271,6 +271,64 @@ class MemoryService:
         """
         return self._storage.purger_source(source, projet)
 
+    def importer_faits(
+        self,
+        faits: list[dict[str, Any]],
+        callback: Any | None = None,
+    ) -> dict[str, Any]:
+        """Réinjecte des faits exportés logiquement, en re-calculant leurs vecteurs.
+
+        Inverse de `Storage.exporter_faits()` : le texte est la source de vérité,
+        les embeddings sont reconstruits localement avec le modèle configuré. Les
+        `id` d'origine ne sont pas conservés (réattribués par SQLite) ; catégorie,
+        source, source_detail, projet et score_importance le sont.
+
+        Les embeddings sont calculés par lots de 32 (principe #8 : jamais un appel
+        réseau par fait). Aucune déduplication : la cible d'un restore est une base
+        neuve, et dédupliquer ferait perdre des faits volontairement proches.
+
+        Args:
+            faits: Liste de dicts au format `exporter_faits()`. Les entrées sans
+                   `contenu` non vide sont ignorées et comptées.
+            callback: Fonction optionnelle appelée après chaque lot avec
+                      (nb_traites, nb_total).
+
+        Returns:
+            Dict avec clés : importes (int), ignores (int).
+
+        Raises:
+            ValueError: Si les embeddings ne peuvent pas être calculés (Ollama
+                        indisponible) — l'appelant doit pré-vérifier Ollama.
+        """
+        retenus = [f for f in faits if isinstance(f.get("contenu"), str) and f["contenu"].strip()]
+        ignores = len(faits) - len(retenus)
+
+        nb_total = len(retenus)
+        taille_lot = 32
+        nb_traites = 0
+
+        for debut in range(0, nb_total, taille_lot):
+            lot = retenus[debut : debut + taille_lot]
+            vecteurs = self._extracteur.embeddings([f["contenu"] for f in lot])
+            if vecteurs:
+                self._assurer_vecteurs_init(vecteurs[0])
+            for fait, vecteur in zip(lot, vecteurs):
+                score = fait.get("score_importance")
+                self._storage.inserer_fait(
+                    contenu=fait["contenu"],
+                    categorie=_normaliser_categorie(fait.get("categorie") or "autre"),
+                    source=fait.get("source") or "manuel",
+                    embedding=vecteur,
+                    source_detail=fait.get("source_detail"),
+                    score_importance=score if score is not None else 0.5,
+                    projet=fait.get("projet"),
+                )
+            nb_traites += len(lot)
+            if callback:
+                callback(nb_traites, nb_total)
+
+        return {"importes": nb_traites, "ignores": ignores}
+
     def migrer_embeddings(
         self,
         nouveau_modele: str,
