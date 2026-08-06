@@ -42,8 +42,11 @@ def charger_faits_json(chemin: Path) -> list[dict]:
         ValueError: Si le document n'est pas une liste JSON.
     """
     donnees = json.loads(chemin.read_text(encoding="utf-8"))
-    if not isinstance(donnees, list):
-        raise ValueError("Format invalide : le fichier doit contenir une liste JSON de faits.")
+    if not isinstance(donnees, list) or not all(isinstance(f, dict) for f in donnees):
+        raise ValueError(
+            "Format invalide : le fichier doit contenir une liste JSON d'objets fait "
+            "(comme produite par 'mmcp export --complet')."
+        )
     return donnees
 
 

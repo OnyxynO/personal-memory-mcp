@@ -113,3 +113,17 @@ def test_charger_faits_json_lit_une_liste_de_faits(tmp_path: Path) -> None:
 
     faits = charger_faits_json(chemin)
     assert [f["contenu"] for f in faits] == ["un fait"]
+
+
+def test_charger_faits_json_rejette_un_element_qui_n_est_pas_un_objet(tmp_path: Path) -> None:
+    from personal_memory_mcp.cli.main import charger_faits_json
+
+    chemin = tmp_path / "faits.json"
+    chemin.write_text('[1, "x", null]', encoding="utf-8")
+
+    try:
+        charger_faits_json(chemin)
+    except ValueError as e:
+        assert "liste" in str(e)
+    else:
+        raise AssertionError("une liste contenant un élément non-objet doit être rejetée")
