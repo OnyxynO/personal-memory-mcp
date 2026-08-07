@@ -45,12 +45,17 @@ def _service(tmp_path: Path, nom: str = "memory.db", **kwargs: Any) -> MemorySer
     return svc
 
 
-def _snapshot(chemin: Path, faits: list[dict], modele: str = "qwen3-embedding:0.6b") -> Path:
+def _snapshot(
+    chemin: Path,
+    faits: list[dict],
+    modele: str = "qwen3-embedding:0.6b",
+    dim: int | None = 4,
+) -> Path:
     chemin.write_text(
         json.dumps({
             "version_format": 1,
             "modele_embeddings": modele,
-            "dim_embeddings": 4,
+            "dim_embeddings": dim,
             "date_export": "2026-08-07T09:00:00+00:00",
             "faits": faits,
         }),
@@ -192,6 +197,86 @@ def test_import_facts_exige_une_confirmation_si_le_modele_diverge(tmp_path: Path
     assert svc._storage.compter()["total"] == 2
 
 
+def test_import_facts_n_ecrit_pas_la_config_si_le_modele_de_l_archive_est_absent(
+    tmp_path: Path,
+) -> None:
+    # Chemin d'échec : le modèle de l'archive est adopté en mémoire (c'est lui
+    # qu'on éprouve), mais la config DB ne doit pas en garder trace — sinon la
+    # base cible resterait marquée d'un modèle qui n'a jamais servi.
+    svc = _service(tmp_path, disponible=False, serveur_joignable=True)
+    svc._extracteur._modele_embeddings = "nomic-embed-text"
+    fichier = _snapshot(tmp_path / "snap.json", [_fait("un fait")], modele="qwen3-embedding:0.6b")
+
+    res = _invoquer(svc, ["import", "facts", str(fichier)])
+
+    assert res.exit_code == 1, res.output
+    assert "ollama pull qwen3-embedding:0.6b" in res.output  # le modèle éprouvé est celui de l'archive
+    assert svc._storage.lire_config("modele_embeddings") is None
+    assert svc._storage.compter()["total"] == 0
+
+
+# --- Dimension d'embedding annoncée par l'archive ---
+
+
+def test_import_facts_refuse_une_dimension_divergente_sans_rien_inserer(tmp_path: Path) -> None:
+    # Cas ollama/ollama#14449 : même nom de modèle, vecteurs de dimension
+    # différente. Seule la confrontation à la dimension réelle le détecte.
+    svc = _service(tmp_path)  # l'extracteur factice produit 4 dimensions
+    fichier = _snapshot(tmp_path / "snap.json", [_fait("un fait")], dim=1024)
+
+    res = _invoquer(svc, ["import", "facts", str(fichier)], input="n\n")
+
+    assert res.exit_code == 1, res.output
+    assert "Dimension d'embedding divergente" in res.output
+    assert "1024" in res.output and "4" in res.output
+    assert svc._storage.compter()["total"] == 0
+
+
+def test_import_facts_poursuit_sur_dimension_divergente_apres_confirmation(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    fichier = _snapshot(tmp_path / "snap.json", [_fait("un fait")], dim=1024)
+
+    res = _invoquer(svc, ["import", "facts", str(fichier)], input="y\n")
+
+    assert res.exit_code == 0, res.output
+    assert svc._storage.compter()["total"] == 1
+
+
+def test_import_facts_ne_dit_rien_quand_la_dimension_concorde(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    fichier = _snapshot(tmp_path / "snap.json", [_fait("un fait")], dim=4)
+
+    res = _invoquer(svc, ["import", "facts", str(fichier)])
+
+    assert res.exit_code == 0, res.output
+    assert "divergente" not in res.output
+
+
+def test_import_facts_sans_dimension_annoncee_ne_sonde_pas(tmp_path: Path) -> None:
+    # Format hérité ou base source jamais vectorisée : rien à confronter.
+    svc = _service(tmp_path)
+    fichier = _snapshot(tmp_path / "snap.json", [_fait("un fait")], dim=None)
+
+    res = _invoquer(svc, ["import", "facts", str(fichier)])
+
+    assert res.exit_code == 0, res.output
+    assert "divergente" not in res.output
+
+
+# --- Champs hors contrat ---
+
+
+def test_import_facts_avertit_sur_les_champs_hors_contrat(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    fichier = _snapshot(tmp_path / "snap.json", [_fait("un fait", champ_inconnu="perdu")])
+
+    res = _invoquer(svc, ["import", "facts", str(fichier)])
+
+    assert res.exit_code == 0, res.output  # signalé, jamais bloquant
+    assert "champ_inconnu" in res.output
+    assert svc._storage.compter()["total"] == 1
+
+
 def test_import_facts_avertit_sur_une_archive_heritee_sans_metadonnees(tmp_path: Path) -> None:
     svc = _service(tmp_path)
     fichier = tmp_path / "snap.json"
@@ -220,7 +305,9 @@ def test_import_facts_signale_l_echec_en_cours_de_route_sans_traceback(tmp_path:
     appels = {"n": 0}
 
     def embeddings_capricieux(textes: list[str]) -> list[list[float]]:
-        appels["n"] += 1
+        # La sonde de dimension (un seul texte) ne compte pas comme un lot.
+        if len(textes) > 1:
+            appels["n"] += 1
         if appels["n"] > 1:  # casse après le premier lot, base déjà partielle
             raise RuntimeError("connexion perdue")
         return [[float(len(t)), 1.0, 0.0, 0.0] for t in textes]

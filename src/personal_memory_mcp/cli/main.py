@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import TYPE_CHECKING, Annotated, Any, Optional
 
 import typer
 from rich.console import Console
@@ -24,6 +24,13 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+
+if TYPE_CHECKING:
+    # Import différé : le module `memory.service` tire sqlite-vec et httpx, trop
+    # coûteux au démarrage d'une CLI dont la plupart des commandes n'en ont pas
+    # besoin. Le typer sous TYPE_CHECKING rend quand même les accès à `_storage`
+    # et `_extracteur` vérifiables par Pyright, là où `Any` les rendait muets.
+    from personal_memory_mcp.memory.service import MemoryService
 
 
 def _service():
@@ -257,7 +264,7 @@ def charger_faits_json(chemin: Path) -> SnapshotFaits:
     )
 
 
-def _verifier_ollama_embeddings(svc: Any) -> None:
+def _verifier_ollama_embeddings(svc: "MemoryService") -> None:
     """Refuse le restore si le modèle d'embedding n'est pas utilisable.
 
     Sans ce pré-check, le ré-embarquement casse en cours de route sur une erreur
@@ -286,7 +293,63 @@ def _verifier_ollama_embeddings(svc: Any) -> None:
     raise typer.Exit(1)
 
 
-def _reconcilier_modele_embeddings(svc: Any, snapshot: SnapshotFaits, base_vierge: bool) -> None:
+def _verifier_dimension_embeddings(svc: "MemoryService", snapshot: SnapshotFaits) -> None:
+    """Confronte la dimension annoncée par l'archive à celle réellement produite.
+
+    C'est le seul signal capable de détecter qu'un modèle **portant le même nom**
+    ne produit plus les mêmes vecteurs (ollama/ollama#14449) : le nom concorde,
+    la config concorde, mais la dimension a changé. Sans ce contrôle le restore
+    se déroule sans un mot et fige la base cible sur la mauvaise dimension.
+
+    Une sonde d'embedding sur un texte court suffit — l'appel est fait ici, juste
+    après le pré-check Ollama et **avant** la boucle d'insertion, pour que le
+    refus laisse la base intacte.
+
+    Args:
+        svc: MemoryService dont l'extracteur porte le modèle effectif.
+        snapshot: Snapshot lu ; ignoré si `dim_embeddings` n'est pas renseigné
+            (format hérité, ou base source jamais vectorisée).
+
+    Raises:
+        typer.Exit: Code 1 si la sonde échoue, ou si l'utilisateur refuse de
+            poursuivre malgré la divergence (ou en contexte non interactif).
+    """
+    if snapshot.dim_embeddings is None:
+        return
+
+    modele = svc._extracteur._modele_embeddings
+    try:
+        sonde = svc._extracteur.embeddings(["sonde de dimension"])
+    except Exception as e:
+        console.print(f"[red]Impossible de calculer un embedding de sonde : {e}[/red]")
+        raise typer.Exit(1)
+    if not sonde or not sonde[0]:
+        console.print(f"[red]Le modèle '{modele}' n'a produit aucun vecteur de sonde.[/red]")
+        raise typer.Exit(1)
+
+    dim_reelle = len(sonde[0])
+    if dim_reelle == snapshot.dim_embeddings:
+        return
+
+    console.print(
+        f"[red]⚠ Dimension d'embedding divergente : l'archive annonce "
+        f"{snapshot.dim_embeddings} dimensions, '{modele}' en produit "
+        f"{dim_reelle}.[/red]"
+    )
+    console.print(
+        "[yellow]Même sous le même nom, le modèle local ne produit donc pas les "
+        "mêmes vecteurs que la base d'origine (cf. ollama/ollama#14449) : la base "
+        "restaurée sera cohérente en interne, mais ses scores de similarité "
+        "différeront de la source.[/yellow]"
+    )
+    if not typer.confirm("Poursuivre malgré tout ?", default=False):
+        console.print("[dim]Annulé.[/dim]\n")
+        raise typer.Exit(1)
+
+
+def _reconcilier_modele_embeddings(
+    svc: "MemoryService", snapshot: SnapshotFaits, base_vierge: bool
+) -> str | None:
     """Aligne le modèle d'embedding utilisé au restore sur celui de l'archive.
 
     C'est le cœur de la portabilité : le snapshot ne transporte pas les vecteurs
@@ -294,15 +357,26 @@ def _reconcilier_modele_embeddings(svc: Any, snapshot: SnapshotFaits, base_vierg
     produit une base cohérente en interne mais différente de la source (autre
     dimension, autres scores) — pour un coût d'une réindexation complète.
 
-    - Base vierge jamais configurée : on adopte le modèle de l'archive et on
-      l'écrit en config AVANT la première insertion.
+    - Base vierge jamais configurée : on adopte le modèle de l'archive sur
+      l'extracteur, et on **retourne** ce modèle pour que l'appelant le persiste
+      une fois toutes les vérifications passées.
     - Divergence sur une base déjà configurée : avertissement rouge et
       confirmation explicite exigée.
 
+    La fonction ne touche **pas** à la config DB : elle ne fait qu'une mutation
+    en mémoire (`_extracteur._modele_embeddings`), justement pour que le modèle
+    de l'archive soit celui que les vérifications suivantes (disponibilité
+    Ollama, dimension) éprouvent. Écrire la config ici laisserait la base cible
+    marquée d'un modèle sur un chemin qui sort ensuite en erreur.
+
     Args:
-        svc: MemoryService à aligner (config DB + extracteur).
+        svc: MemoryService à aligner (extracteur uniquement).
         snapshot: Snapshot lu, dont les métadonnées d'embedding.
         base_vierge: True si la base ne contient aucun fait.
+
+    Returns:
+        Le modèle à écrire en config avant la première insertion, ou None si la
+        config de la base ne doit pas changer.
 
     Raises:
         typer.Exit: Code 1 si l'utilisateur refuse de poursuivre malgré la
@@ -317,22 +391,19 @@ def _reconcilier_modele_embeddings(svc: Any, snapshot: SnapshotFaits, base_vierg
             f"vérifier le modèle d'embedding d'origine. Restauration avec "
             f"'{modele_effectif}'.[/yellow]"
         )
-        return
+        return None
 
     if modele_archive == modele_effectif:
-        return
+        return None
 
     if base_vierge and svc._storage.lire_config("modele_embeddings") is None:
         # Base neuve jamais vectorisée : le modèle de l'archive fait autorité.
-        # Écrit en config *avant* toute insertion, sinon la base se figerait sur
-        # la dimension du modèle par défaut du code.
-        svc._storage.ecrire_config("modele_embeddings", modele_archive)
         svc._extracteur._modele_embeddings = modele_archive
         console.print(
             f"[green]Modèle d'embedding de l'archive adopté : '{modele_archive}'[/green] "
             f"[dim](défaut local : '{modele_effectif}')[/dim]"
         )
-        return
+        return modele_archive
 
     console.print(
         f"[red]⚠ Modèle d'embedding divergent : l'archive a été produite avec "
@@ -347,7 +418,7 @@ def _reconcilier_modele_embeddings(svc: Any, snapshot: SnapshotFaits, base_vierg
         raise typer.Exit(1)
 
 
-def _importer_facts(svc: Any, chemin: str | None, force: bool) -> None:
+def _importer_facts(svc: "MemoryService", chemin: str | None, force: bool) -> None:
     """Restaure un export logique de faits (`mmcp export --complet`).
 
     Args:
@@ -383,8 +454,23 @@ def _importer_facts(svc: Any, chemin: str | None, force: bool) -> None:
         console.print("[yellow]Un restore vise une base neuve. Relancer avec --force pour ajouter par-dessus.[/yellow]")
         raise typer.Exit(1)
 
-    _reconcilier_modele_embeddings(svc, snapshot, base_vierge=total_existant == 0)
+    # Ordre : on aligne le modèle en mémoire, on éprouve Ollama et la dimension
+    # avec CE modèle, et seulement ensuite on écrit la config — avant la première
+    # insertion (sinon `_assurer_vecteurs_init` figerait la base sur la dimension
+    # du modèle par défaut du code), mais après tous les chemins d'échec.
+    modele_a_persister = _reconcilier_modele_embeddings(
+        svc, snapshot, base_vierge=total_existant == 0
+    )
     _verifier_ollama_embeddings(svc)
+    _verifier_dimension_embeddings(svc, snapshot)
+    if modele_a_persister:
+        svc._storage.ecrire_config("modele_embeddings", modele_a_persister)
+
+    if snapshot.cles_inattendues:
+        console.print(
+            "[yellow]⚠ Champs hors contrat ignorés (ils ne seront pas conservés) : "
+            f"{', '.join(snapshot.cles_inattendues)}[/yellow]"
+        )
 
     faits = snapshot.faits
     console.print(f"\nRestauration de [bold]{len(faits)}[/bold] faits depuis {chemin_json.name}")
