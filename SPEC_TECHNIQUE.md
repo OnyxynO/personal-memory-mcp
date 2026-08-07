@@ -491,9 +491,33 @@ l'écrit. Toute évolution incompatible incrémente `version_format`.
   se fige silencieusement sur le modèle par défaut du code et sa dimension.
 - `id` est exporté pour la lisibilité mais **non conservé** au restore (réattribué
   par SQLite).
+- **Les champs d'un fait non listés ci-dessus ne sont pas conservés.** Le restore
+  ne relit que `contenu`, `categorie`, `source`, `source_detail`, `projet`,
+  `date_creation`, `date_derniere_utilisation`, `score_importance` — toute autre
+  clé disparaît du ré-export. Un producteur plus récent qui ajoute un champ doit
+  donc **incrémenter `version_format`** ; en attendant, `mmcp import facts`
+  **avertit** (jaune, non bloquant) en nommant les clés hors contrat rencontrées.
+- **Dates** : ISO 8601 en forme **étendue** obligatoire (`AAAA-MM-JJ[THH:MM:SS[±HH:MM]]`).
+  La forme *basique* (`20260807`), bien qu'acceptée par `datetime.fromisoformat`,
+  est **refusée** : le code compare les dates en tant que chaînes et les tronque à
+  10 caractères, et `'-'` (0x2D) précède `'0'` (0x30) — basique et étendu ne
+  s'ordonnent pas de la même façon à année égale.
+- **`dim_embeddings` est vérifié au restore**, pas seulement transporté : une sonde
+  d'embedding sur un texte court est comparée à la valeur annoncée **avant** la
+  première insertion. C'est le seul signal qui détecte qu'un modèle *portant le
+  même nom* ne produit plus la même dimension (ollama/ollama#14449). En cas de
+  divergence : avertissement rouge + confirmation explicite (défaut « non »),
+  même traitement que pour un modèle divergent.
 - **Lecture** : `charger_faits_json` accepte aussi une **liste JSON nue** (format
-  hérité des premiers exports, sans métadonnées) ; une `version_format` inconnue
-  est refusée. Chaque fait est validé champ par champ avant la moindre écriture.
+  hérité des premiers exports, sans métadonnées) ; une `version_format` absente
+  (enveloppe incomplète) ou inconnue (autre version) est refusée, avec deux
+  messages distincts. Chaque fait est validé champ par champ avant la moindre
+  écriture.
+- **Ordre au restore** (aucune écriture sur un chemin d'échec) : lecture+validation
+  → réconciliation du modèle **en mémoire** → pré-check Ollama → contrôle de
+  dimension → écriture de la config `modele_embeddings` → boucle d'insertion. La
+  config est écrite avant la première insertion (sinon la base se figerait sur la
+  dimension du modèle par défaut du code) mais après tous les points de sortie.
 
 ---
 
