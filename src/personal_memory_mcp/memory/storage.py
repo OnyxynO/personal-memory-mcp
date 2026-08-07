@@ -286,6 +286,7 @@ class Storage:
         score_importance: float = 0.5,
         projet: str | None = None,
         date_creation: str | None = None,
+        date_derniere_utilisation: str | None = None,
     ) -> int:
         """Insère un nouveau fait avec son embedding.
 
@@ -304,6 +305,11 @@ class Storage:
                 présent (`_maintenant()`) est utilisé. Permet à un restore de
                 snapshot de préserver la date d'origine plutôt que d'écraser
                 l'historique par la date du restore.
+            date_derniere_utilisation: Horodatage ISO 8601 de la dernière
+                utilisation, ou `None` (fait jamais utilisé — cas d'un fait
+                fraîchement ajouté). Restauré tel quel par un restore de
+                snapshot, pour ne pas rajeunir artificiellement la mémoire vis
+                à vis de `mmcp clean`.
 
         Returns:
             ID du fait inséré (rowid).
@@ -313,10 +319,20 @@ class Storage:
         """
         curseur = self._conn.execute(
             """
-            INSERT INTO faits (contenu, categorie, source, source_detail, projet, date_creation, score_importance)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO faits (contenu, categorie, source, source_detail, projet,
+                               date_creation, date_derniere_utilisation, score_importance)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (contenu, categorie, source, source_detail, projet, date_creation or _maintenant(), score_importance),
+            (
+                contenu,
+                categorie,
+                source,
+                source_detail,
+                projet,
+                date_creation or _maintenant(),
+                date_derniere_utilisation,
+                score_importance,
+            ),
         )
         rowid: int = curseur.lastrowid  # type: ignore[assignment]
         import struct
@@ -581,12 +597,13 @@ class Storage:
 
         Returns:
             Liste de dicts triés par id croissant, clés : id, contenu, categorie,
-            source, source_detail, projet, date_creation, score_importance.
+            source, source_detail, projet, date_creation,
+            date_derniere_utilisation, score_importance.
         """
         rows = self._conn.execute(
             """
             SELECT id, contenu, categorie, source, source_detail, projet,
-                   date_creation, score_importance
+                   date_creation, date_derniere_utilisation, score_importance
             FROM faits WHERE actif = 1
             ORDER BY id ASC
             """
