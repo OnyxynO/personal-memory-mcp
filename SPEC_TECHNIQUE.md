@@ -457,6 +457,44 @@ Structure d'une conversation : graphe `mapping` (parent/enfant), `current_node` 
 reconstituer l'ordre des messages. Chaque nœud a `content.parts[]` (liste de strings).
 Filtre : `weight == 0` → branches alternatives, ignorées.
 
+### Snapshot portable (`mmcp export --complet` ↔ `mmcp import facts`)
+
+Format **produit** par ce projet, et contrat inter-projets : `atelier` le lit et
+l'écrit. Toute évolution incompatible incrémente `version_format`.
+
+```json
+{
+  "version_format": 1,
+  "modele_embeddings": "qwen3-embedding:0.6b",
+  "dim_embeddings": 1024,
+  "date_export": "2026-08-07T09:00:00+00:00",
+  "faits": [
+    {
+      "id": 1,
+      "contenu": "…",
+      "categorie": "doc",
+      "source": "workspace",
+      "source_detail": "projets/sand/CLAUDE.md#stack",
+      "projet": "sand",
+      "date_creation": "2026-01-15T08:30:00+00:00",
+      "date_derniere_utilisation": null,
+      "score_importance": 0.5
+    }
+  ]
+}
+```
+
+- **Les vecteurs ne sont jamais exportés** : le texte est la source de vérité, les
+  embeddings sont recalculés localement au restore (les vecteurs ne sont pas
+  stables entre modèles ni entre versions d'Ollama, cf. ollama/ollama#14449).
+  D'où la nécessité de transporter `modele_embeddings` : sans lui, la base cible
+  se fige silencieusement sur le modèle par défaut du code et sa dimension.
+- `id` est exporté pour la lisibilité mais **non conservé** au restore (réattribué
+  par SQLite).
+- **Lecture** : `charger_faits_json` accepte aussi une **liste JSON nue** (format
+  hérité des premiers exports, sans métadonnées) ; une `version_format` inconnue
+  est refusée. Chaque fait est validé champ par champ avant la moindre écriture.
+
 ---
 
 ## 11. Configuration MCP injectée par `mmcp setup`
