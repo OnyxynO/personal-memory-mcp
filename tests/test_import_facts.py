@@ -221,6 +221,12 @@ def test_charger_faits_json_rejette_un_element_qui_n_est_pas_un_objet(tmp_path: 
         ({"contenu": "ok", "score_importance": 3.5}, r"\[0, 1\]"),
         ({"contenu": "ok", "date_creation": "hier"}, r"'date_creation'"),
         ({"contenu": "ok", "date_derniere_utilisation": 42}, r"'date_derniere_utilisation'"),
+        # ISO *basique* (sans séparateurs) : accepté par `datetime.fromisoformat`,
+        # mais le reste du code compare les dates en tant que chaînes et tronque à
+        # 10 caractères — basique et étendu ne s'ordonnent pas pareil ('-' < '0').
+        ({"contenu": "ok", "date_creation": "20260807"}, r"étendue"),
+        ({"contenu": "ok", "date_creation": "20260807T090000"}, r"étendue"),
+        ({"contenu": "ok", "date_derniere_utilisation": "20260807"}, r"étendue"),
     ],
 )
 def test_charger_faits_json_valide_chaque_champ(tmp_path: Path, fait_invalide: dict, motif: str) -> None:
@@ -238,6 +244,46 @@ def test_charger_faits_json_accepte_un_fait_complet_bien_type(tmp_path: Path) ->
 
     snapshot = charger_faits_json(chemin)
     assert snapshot.faits[0]["projet"] == "sand"
+
+
+def test_charger_faits_json_accepte_les_dates_iso_etendues_usuelles(tmp_path: Path) -> None:
+    # Contrepartie du rejet de l'ISO basique : les formes réellement produites
+    # par `datetime.isoformat()` (avec ou sans heure, avec fuseau) restent valides.
+    chemin = _ecrire(tmp_path, json.dumps([
+        {"contenu": "a", "date_creation": "2026-08-07"},
+        {"contenu": "b", "date_creation": "2026-08-07T09:00:00"},
+        {"contenu": "c", "date_creation": "2026-08-07T09:00:00+00:00"},
+    ]))
+
+    assert len(charger_faits_json(chemin).faits) == 3
+
+
+def test_charger_faits_json_rejette_une_enveloppe_sans_version_de_format(tmp_path: Path) -> None:
+    # Enveloppe amputée ≠ version future : le message ne doit pas envoyer
+    # l'utilisateur mettre à jour le paquet pour un fichier simplement malformé.
+    chemin = _ecrire(tmp_path, json.dumps({"faits": [{"contenu": "un fait"}]}))
+
+    with pytest.raises(ValueError, match="Enveloppe incomplète") as err:
+        charger_faits_json(chemin)
+    assert "mettez à jour" not in str(err.value)
+
+
+def test_charger_faits_json_recense_les_cles_hors_contrat(tmp_path: Path) -> None:
+    # Contrat inter-projets : un producteur plus récent qui ajoute un champ doit
+    # être signalé, pas voir ses données disparaître en silence au ré-export.
+    chemin = _ecrire(tmp_path, json.dumps([
+        {"contenu": "a", "champ_inconnu": "x"},
+        {"contenu": "b", "autre_champ": 1, "champ_inconnu": "y"},
+    ]))
+
+    snapshot = charger_faits_json(chemin)
+    assert snapshot.cles_inattendues == ("autre_champ", "champ_inconnu")
+
+
+def test_charger_faits_json_ne_signale_rien_sur_un_fait_du_contrat(tmp_path: Path) -> None:
+    chemin = _ecrire(tmp_path, json.dumps([_fait("complet", projet="sand")]))
+
+    assert charger_faits_json(chemin).cles_inattendues == ()
 
 
 def test_charger_faits_json_rejette_un_json_syntaxiquement_casse(tmp_path: Path) -> None:

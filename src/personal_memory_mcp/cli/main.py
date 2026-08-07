@@ -42,6 +42,33 @@ _CHAMPS_TEXTE_OPTIONNELS = ("categorie", "source", "source_detail", "projet")
 # Champs horodatés : ISO 8601 parsable, sinon le tri chronologique et `mmcp clean`
 # (qui tronquent la chaîne à 10 caractères) deviennent faux.
 _CHAMPS_DATE = ("date_creation", "date_derniere_utilisation")
+# Champs qu'un fait du contrat v1 peut porter. Tout le reste est perdu au
+# restore (`importer_faits` ne lit que ces clés) : on le signale plutôt que de
+# laisser des données s'évaporer en silence.
+_CHAMPS_CONNUS = frozenset(
+    {"id", "contenu", "score_importance", *_CHAMPS_TEXTE_OPTIONNELS, *_CHAMPS_DATE}
+)
+
+
+def _valider_date_iso(valeur: str) -> None:
+    """Valide une date au format ISO 8601 **étendu** (`AAAA-MM-JJ[...]`).
+
+    `datetime.fromisoformat` accepte aussi la forme *basique* sans séparateurs
+    (`20260807`), que le reste du code casserait en silence : `mmcp clean`
+    tronque à 10 caractères (`r[3][:10]`) et compare les dates **en tant que
+    chaînes**. Or `'-'` (0x2D) précède `'0'` (0x30) : à année égale, une date
+    basique et une date étendue ne s'ordonnent pas de la même façon. On exige
+    donc la forme étendue, seule produite par `datetime.isoformat()`.
+
+    Args:
+        valeur: Chaîne candidate.
+
+    Raises:
+        ValueError: Si la date n'est pas parsable ou n'est pas en forme étendue.
+    """
+    datetime.fromisoformat(valeur)
+    if len(valeur) < 10 or valeur[4] != "-" or valeur[7] != "-":
+        raise ValueError("forme étendue attendue")
 
 
 @dataclass(frozen=True)
@@ -56,6 +83,8 @@ class SnapshotFaits:
             l'archive ne le porte pas (format hérité).
         dim_embeddings: Dimension des vecteurs de la base source, ou None.
         date_export: Horodatage ISO 8601 de l'export, ou None.
+        cles_inattendues: Clés de fait hors contrat rencontrées dans le fichier,
+            qui ne seront pas conservées au restore.
     """
 
     faits: list[dict[str, Any]] = field(default_factory=list)
@@ -63,6 +92,7 @@ class SnapshotFaits:
     modele_embeddings: str | None = None
     dim_embeddings: int | None = None
     date_export: str | None = None
+    cles_inattendues: tuple[str, ...] = ()
 
 
 def _valider_faits(faits: list[Any]) -> None:
@@ -124,11 +154,32 @@ def _valider_faits(faits: list[Any]) -> None:
                     f"reçu {type(valeur).__name__}"
                 )
             try:
-                datetime.fromisoformat(valeur)
+                _valider_date_iso(valeur)
             except ValueError:
                 raise ValueError(
-                    f"élément #{i} : champ '{cle}' attendu date ISO 8601, reçu '{valeur}'"
+                    f"élément #{i} : champ '{cle}' attendu date ISO 8601 étendue "
+                    f"(AAAA-MM-JJ[THH:MM:SS]), reçu '{valeur}'"
                 ) from None
+
+
+def _cles_inattendues(faits: list[dict[str, Any]]) -> tuple[str, ...]:
+    """Recense les clés de fait hors contrat, triées, sans doublon.
+
+    Le restore ne relit que `_CHAMPS_CONNUS` : toute autre clé disparaît du
+    ré-export. Sur un contrat inter-projets, un producteur plus récent (`atelier`)
+    qui ajouterait un champ verrait ses données s'évaporer sans un mot — on
+    avertit donc, sans bloquer (un champ en plus n'est pas une corruption).
+
+    Args:
+        faits: Faits déjà validés.
+
+    Returns:
+        Les noms de clés inattendues, ordonnés.
+    """
+    inattendues: set[str] = set()
+    for fait in faits:
+        inattendues |= set(fait) - _CHAMPS_CONNUS
+    return tuple(sorted(inattendues))
 
 
 def charger_faits_json(chemin: Path) -> SnapshotFaits:
@@ -149,15 +200,15 @@ def charger_faits_json(chemin: Path) -> SnapshotFaits:
 
     Raises:
         ValueError: Si le JSON est mal formé, si la structure n'est ni une
-            enveloppe ni une liste, si `version_format` est inconnue, ou si un
-            fait porte un champ mal typé.
+            enveloppe ni une liste, si `version_format` est absente (enveloppe
+            incomplète) ou inconnue, ou si un fait porte un champ mal typé.
     """
     donnees = json.loads(chemin.read_text(encoding="utf-8"))
 
     if isinstance(donnees, list):
         # Format hérité : liste nue, aucune métadonnée d'embedding.
         _valider_faits(donnees)
-        return SnapshotFaits(faits=donnees)
+        return SnapshotFaits(faits=donnees, cles_inattendues=_cles_inattendues(donnees))
 
     if not isinstance(donnees, dict):
         raise ValueError(
@@ -167,6 +218,16 @@ def charger_faits_json(chemin: Path) -> SnapshotFaits:
         )
 
     version = donnees.get("version_format")
+    if version is None:
+        # Enveloppe amputée : ce n'est pas une version future, c'est un fichier
+        # malformé (ou une liste de faits enveloppée à la main). Envoyer
+        # l'utilisateur mettre à jour le paquet ne l'aiderait pas.
+        raise ValueError(
+            "Enveloppe incomplète : la clé 'version_format' est absente. Ce "
+            "fichier n'est pas un snapshot valide — le ré-exporter avec "
+            "'mmcp export --complet --format json', ou fournir directement la "
+            "liste JSON des faits (format hérité, accepté)."
+        )
     if version != VERSION_FORMAT_SNAPSHOT:
         raise ValueError(
             f"Version de format inconnue : {version!r} (attendue : "
@@ -192,6 +253,7 @@ def charger_faits_json(chemin: Path) -> SnapshotFaits:
         modele_embeddings=modele if isinstance(modele, str) else None,
         dim_embeddings=dim if isinstance(dim, int) and not isinstance(dim, bool) else None,
         date_export=donnees.get("date_export") if isinstance(donnees.get("date_export"), str) else None,
+        cles_inattendues=_cles_inattendues(faits),
     )
 
 
