@@ -1,6 +1,7 @@
 """MemoryService — couche métier centrale."""
 
 import unicodedata
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -271,6 +272,81 @@ class MemoryService:
         """
         return self._storage.purger_source(source, projet)
 
+    def importer_faits(
+        self,
+        # `Sequence` et non `list` : à ce point de la classe, le nom `list` est
+        # masqué par la méthode `MemoryService.list` (Pyright refuse alors
+        # l'annotation `list[...]`).
+        faits: Sequence[dict[str, Any]],
+        callback: Any | None = None,
+    ) -> dict[str, Any]:
+        """Réinjecte des faits exportés logiquement, en re-calculant leurs vecteurs.
+
+        Inverse de `Storage.exporter_faits()` : le texte est la source de vérité,
+        les embeddings sont reconstruits localement avec le modèle configuré. Les
+        `id` d'origine ne sont pas conservés (réattribués par SQLite) ; catégorie,
+        source, source_detail, projet, score_importance, date_creation et
+        date_derniere_utilisation le sont (date_creation manquante ou absente →
+        date du restore, en repli).
+
+        Les embeddings sont calculés par lots de 32 (principe #8 : jamais un appel
+        réseau par fait). Aucune déduplication : la cible d'un restore est une base
+        neuve, et dédupliquer ferait perdre des faits volontairement proches.
+
+        Args:
+            faits: Liste de dicts au format `exporter_faits()`. Les entrées sans
+                   `contenu` non vide sont ignorées et comptées.
+            callback: Fonction optionnelle appelée après chaque lot avec
+                      (nb_traites, nb_total).
+
+        Returns:
+            Dict avec clés : importes (int), ignores (int).
+
+        Raises:
+            ValueError: Si les embeddings ne peuvent pas être calculés (Ollama
+                        indisponible) — l'appelant doit pré-vérifier Ollama —,
+                        ou si le lot d'embeddings reçu n'a pas la même taille que
+                        le lot de textes envoyé (réponse Ollama tronquée : sans
+                        cette garde, `zip` perdrait des faits en silence et le
+                        compteur mentirait).
+        """
+        retenus = [f for f in faits if isinstance(f.get("contenu"), str) and f["contenu"].strip()]
+        ignores = len(faits) - len(retenus)
+
+        nb_total = len(retenus)
+        taille_lot = 32
+        nb_traites = 0
+
+        for debut in range(0, nb_total, taille_lot):
+            lot = retenus[debut : debut + taille_lot]
+            vecteurs = self._extracteur.embeddings([f["contenu"] for f in lot])
+            if len(vecteurs) != len(lot):
+                raise ValueError(
+                    f"Réponse d'embedding incomplète : {len(vecteurs)} vecteurs "
+                    f"reçus pour {len(lot)} textes envoyés. Restauration "
+                    f"interrompue pour ne pas perdre de faits en silence."
+                )
+            if vecteurs:
+                self._assurer_vecteurs_init(vecteurs[0])
+            for fait, vecteur in zip(lot, vecteurs, strict=True):
+                score = fait.get("score_importance")
+                self._storage.inserer_fait(
+                    contenu=fait["contenu"],
+                    categorie=_normaliser_categorie(fait.get("categorie") or "autre"),
+                    source=fait.get("source") or "manuel",
+                    embedding=vecteur,
+                    source_detail=fait.get("source_detail"),
+                    score_importance=score if score is not None else 0.5,
+                    projet=fait.get("projet"),
+                    date_creation=fait.get("date_creation"),
+                    date_derniere_utilisation=fait.get("date_derniere_utilisation"),
+                )
+            nb_traites += len(lot)
+            if callback:
+                callback(nb_traites, nb_total)
+
+        return {"importes": nb_traites, "ignores": ignores}
+
     def migrer_embeddings(
         self,
         nouveau_modele: str,
@@ -327,7 +403,13 @@ class MemoryService:
             ids = [f[0] for f in batch]
             contenus = [f[1] for f in batch]
             embeddings = self._extracteur.embeddings(contenus)
-            for id_, embedding in zip(ids, embeddings):
+            if len(embeddings) != len(contenus):
+                raise ValueError(
+                    f"Réponse d'embedding incomplète : {len(embeddings)} vecteurs "
+                    f"reçus pour {len(contenus)} textes envoyés. Migration "
+                    f"interrompue (la base d'origine est sauvegardée)."
+                )
+            for id_, embedding in zip(ids, embeddings, strict=True):
                 self._storage.mettre_a_jour_vecteur(id_, embedding)
             nb_traites += len(batch)
             if callback:

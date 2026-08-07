@@ -285,6 +285,8 @@ class Storage:
         source_detail: str | None = None,
         score_importance: float = 0.5,
         projet: str | None = None,
+        date_creation: str | None = None,
+        date_derniere_utilisation: str | None = None,
     ) -> int:
         """Insère un nouveau fait avec son embedding.
 
@@ -299,6 +301,15 @@ class Storage:
             source_detail: Détail optionnel (chemin fichier, session_id, etc.).
             score_importance: Confiance du LLM dans le fait [0.0, 1.0] (défaut: 0.5).
             projet: Projet de rattachement (pour le scoping des requêtes), ou None.
+            date_creation: Horodatage ISO 8601 à consigner ; si `None`, l'instant
+                présent (`_maintenant()`) est utilisé. Permet à un restore de
+                snapshot de préserver la date d'origine plutôt que d'écraser
+                l'historique par la date du restore.
+            date_derniere_utilisation: Horodatage ISO 8601 de la dernière
+                utilisation, ou `None` (fait jamais utilisé — cas d'un fait
+                fraîchement ajouté). Restauré tel quel par un restore de
+                snapshot, pour ne pas rajeunir artificiellement la mémoire vis
+                à vis de `mmcp clean`.
 
         Returns:
             ID du fait inséré (rowid).
@@ -308,10 +319,20 @@ class Storage:
         """
         curseur = self._conn.execute(
             """
-            INSERT INTO faits (contenu, categorie, source, source_detail, projet, date_creation, score_importance)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO faits (contenu, categorie, source, source_detail, projet,
+                               date_creation, date_derniere_utilisation, score_importance)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (contenu, categorie, source, source_detail, projet, _maintenant(), score_importance),
+            (
+                contenu,
+                categorie,
+                source,
+                source_detail,
+                projet,
+                date_creation or _maintenant(),
+                date_derniere_utilisation,
+                score_importance,
+            ),
         )
         rowid: int = curseur.lastrowid  # type: ignore[assignment]
         import struct
@@ -560,6 +581,33 @@ class Storage:
                 ORDER BY id DESC LIMIT ? OFFSET ?
             """
             rows = self._conn.execute(sql, (limite, offset)).fetchall()
+        return [dict(r) for r in rows]
+
+    def exporter_faits(self) -> list[dict[str, Any]]:
+        """Exporte tous les faits actifs, tous champs logiques, sans vecteur.
+
+        Chemin dédié au snapshot portable : contrairement à `lister()` (qui
+        alimente l'outil MCP `list_facts`, sensible au volume de tokens), il
+        n'est plafonné par aucune limite et conserve la colonne `projet` —
+        indispensable au scoping des requêtes après restauration.
+
+        Les embeddings ne sont jamais exportés : ils sont reconstruits au
+        restore avec le modèle local (le texte est la source de vérité, cf.
+        instabilité des vecteurs entre versions d'Ollama, ollama/ollama#14449).
+
+        Returns:
+            Liste de dicts triés par id croissant, clés : id, contenu, categorie,
+            source, source_detail, projet, date_creation,
+            date_derniere_utilisation, score_importance.
+        """
+        rows = self._conn.execute(
+            """
+            SELECT id, contenu, categorie, source, source_detail, projet,
+                   date_creation, date_derniere_utilisation, score_importance
+            FROM faits WHERE actif = 1
+            ORDER BY id ASC
+            """
+        ).fetchall()
         return [dict(r) for r in rows]
 
     def obtenir_par_id(self, id: int) -> dict[str, Any] | None:
