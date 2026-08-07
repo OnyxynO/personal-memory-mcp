@@ -38,6 +38,14 @@ EXCLUSIONS_DEFAUT: frozenset[str] = frozenset(
         ".pytest_cache",
         ".ruff_cache",
         ".mypy_cache",
+        # Secrets d'exploitation (tokens, credentials, coffres). Contrairement aux
+        # entrées ci-dessus, l'enjeu n'est pas la pollution de l'index mais la
+        # confidentialité : un reindex réel y avait pris 215 faits, dont des tokens
+        # PyPI et un PAT GitHub, stockés en clair et vectorisés — donc remontables
+        # par une simple recherche sémantique. Ces répertoires sont gitignorés
+        # précisément pour cette raison ; l'indexation ne doit pas les rattraper.
+        "infra",
+        "secrets",
     }
 )
 MAX_CHARS_DEFAUT = 2000

@@ -194,6 +194,30 @@ def test_parcours_exclut_venv_et_environnements(tmp_path: Path) -> None:
     assert not any(".venv" in d for d in details), "le .venv ne doit pas être indexé"
 
 
+def test_parcours_exclut_infra_porteur_de_secrets(tmp_path: Path) -> None:
+    # `infra/` héberge les secrets d'exploitation (tokens, credentials) et c'est
+    # pour cela qu'il est gitignoré. Un reindex réel l'avait indexé : 215 faits,
+    # dont des tokens PyPI et un PAT GitHub en clair dans la base, et vectorisés
+    # donc remontables par une recherche sémantique. Découvert le 2026-08-07 par
+    # le garde-fou anti-secrets d'`atelier snapshot export`, qui a refusé l'export.
+    (tmp_path / "INDEX.md").write_text("# Index\ncontenu ordinaire\n", encoding="utf-8")
+    secrets = tmp_path / "infra"
+    secrets.mkdir()
+    (secrets / "pypi-tokens.md").write_text("# Tokens\nvaleur sensible\n", encoding="utf-8")
+    (secrets / "blog").mkdir()
+    (secrets / "blog" / "CREDENTIALS.md").write_text("# Accès\nmot de passe\n", encoding="utf-8")
+
+    svc = _ServiceTest(tmp_path / "m.db")
+    ImporteurMarkdownTree(svc, projet_defaut="ouroboros").importer(str(tmp_path))
+
+    details = {
+        r["source_detail"]
+        for r in svc._storage._conn.execute("SELECT source_detail FROM faits").fetchall()
+    }
+    assert any("INDEX.md" in d for d in details), "le contenu ordinaire doit être indexé"
+    assert not any("infra/" in d for d in details), "infra/ ne doit jamais être indexé"
+
+
 def test_importer_racine_absente_leve(tmp_path: Path) -> None:
     svc = _ServiceTest(tmp_path / "m.db")
     imp = ImporteurMarkdownTree(svc)
