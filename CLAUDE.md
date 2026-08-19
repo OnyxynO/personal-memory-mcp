@@ -8,7 +8,7 @@ Serveur MCP local qui extrait des faits mémorisables depuis les historiques
 de conversations IA et les expose à tous les clients MCP compatibles.
 
 - **CLI** : `mmcp`
-- **Paquet PyPI** : `personal-memory-mcp` — **publié v0.1.3 le 2026-06-21** (https://pypi.org/project/personal-memory-mcp/0.1.3/)
+- **Paquet PyPI** : `personal-memory-mcp` — **publié v0.1.4 le 2026-08-19** (https://pypi.org/project/personal-memory-mcp/0.1.4/)
 - **Install end-user** : `pip install personal-memory-mcp`
 - **Données** : `~/.personal-memory/`
 - **Usage** : personnel, pas de multi-utilisateur
@@ -25,6 +25,16 @@ Workflow de release (validé v0.1.1 → v0.1.3) :
 - **Token PyPI** : scopé projet dans `infra/.env` local (`PYPI_TOKEN`), gitignored. Le token global est dans `infra/pypi-tokens.md` (workspace racine).
 
 Packaging (depuis v0.1.1) : LICENSE MIT à la racine + `license = "MIT"` + `license-files = ["LICENSE"]` (PEP 621) ; `[project.urls]` Homepage/Repository/Issues/Changelog ; `anthropic` **uniquement en dev-dep** (`[dependency-groups] dev`, tests d'intégration haiku) — pas dans le paquet publié.
+
+### v0.1.4 (2026-08-19) — mcp SDK 2.0, indexation arbre markdown, recherche scopée
+Republication rattrapant trois chantiers développés depuis v0.1.3 mais jamais publiés (branche
+locale + `uv run --project`) :
+- **Migration du serveur MCP vers le SDK `mcp` 2.0** (`FastMCP` → `MCPServer`), 116 tests + smoke stdio
+- **`ImporteurMarkdownTree`** (`import markdown-tree`) : indexation générique chunk-and-embed d'un
+  arbre de fichiers Markdown, sans extraction LLM — développé pour la Phase 1 de l'Atelier ouroboros
+- **`search --json`** (sortie machine sans rich) et **`search --source`** (scope par source, ex.
+  `--source workspace` pour ne remonter que le corpus curé) — développés pour `atelier role`
+  (briefing dogfoodé)
 
 ### v0.1.3 (2026-06-21) — cohérence embeddings entre versions d'Ollama
 - `nomic-embed-text` (modèle d'embedding **par défaut du code**) produit des vecteurs différents entre versions mineures d'Ollama (issue ollama/ollama#14449) → scores de similarité dégradés après upgrade
@@ -96,9 +106,9 @@ uv run pytest -v            # avec détail par test
 - `tests/test_import_facts.py` — `importer_faits()` (batching, dates, lot incomplet) + lecture/validation du fichier de snapshot
 - `tests/test_cli_import_facts.py` — garde-fous CLI du snapshot (base non vide, Ollama, modèle divergent, `--complet` + csv/catégorie) et round-trip export → import
 
-## État (juin 2026) — v0.1.3 publiée
+## État (août 2026) — v0.1.4 publiée
 
-**Projet livré.** Dernière version PyPI **v0.1.3 (2026-06-21)** ; publication initiale v0.1.0 le 2026-05-16. `pip install personal-memory-mcp`
+**Projet livré.** Dernière version PyPI **v0.1.4 (2026-08-19)** ; publication initiale v0.1.0 le 2026-05-16. `pip install personal-memory-mcp`
 - GitHub : https://github.com/OnyxynO/personal-memory-mcp/releases/tag/v0.1.0
 - PyPI : https://pypi.org/project/personal-memory-mcp/
 - Token PyPI : `infra/.env` (ignoré git)
@@ -132,6 +142,7 @@ uv run pytest -v            # avec détail par test
   - CLI `mmcp import markdown-tree <racine>` (options `--inclure-refs`, `--projet-base`, `--projet-defaut`)
   - **Dérivation projet en profondeur 1** sous une base (`projets/<x>` → `<x>` ; familles au niveau famille) — la granularité sous-projet (aligner sur le registry) reste un raffinement à venir
 - ✅ Filtre `--source` sur `search` (2026-08-02, dette §10 de l'Atelier) : `search(..., source=None)` traverse CLI/MCP → `Storage.rechercher`/`rechercher_fts` (même patron que `--projet`, inclus dans le chemin scalaire `vec_distance_cosine`). Permet de scoper une recherche au **corpus curé** (`--source workspace`) sans se faire noyer par les facts d'étude de code ou d'import de conversation qui partagent la DB. Consommé par `atelier role` (briefing scopé). Tests : `tests/test_storage_source.py`.
+- ✅ **v0.1.4 (2026-08-19)** — republication rattrapant mcp SDK 2.0, `import markdown-tree` et `search --json`/`--source`, développés depuis v0.1.3 mais jamais publiés sur PyPI (installs PyPI antérieures = ni la migration mcp 2.0 ni ces trois chantiers).
 
 ## LSP
 
