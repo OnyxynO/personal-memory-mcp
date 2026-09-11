@@ -50,7 +50,31 @@ def test_decouper_redecoupe_les_sections_longues() -> None:
     corps = "\n\n".join("para " + "x" * 100 for _ in range(40))  # bien > 500 chars
     sections = decouper_en_sections(f"# T\n{corps}\n", max_chars=500)
     assert len(sections) > 1
-    assert all(ancre == "t" for ancre, _ in sections)
+    assert all(ancre.startswith("t") for ancre, _ in sections)
+
+
+def test_decouper_donne_une_ancre_unique_par_sous_bloc() -> None:
+    # Régression (bug réel constaté au 1er reindex delta du workspace,
+    # 2026-09-11) : une section redécoupée en plusieurs sous-blocs partageait
+    # la même ancre. `source_detail = f"{rel}#{ancre}"` n'était alors plus une
+    # clé unique par chunk : le delta écrasait un sous-bloc par le suivant à
+    # chaque run, et les anciennes lignes en doublon (issues du mode purge)
+    # n'étaient jamais nettoyées. Chaque sous-bloc doit avoir une ancre distincte.
+    corps = "\n\n".join("para " + "x" * 100 for _ in range(40))
+    sections = decouper_en_sections(f"# T\n{corps}\n", max_chars=500)
+    ancres = [ancre for ancre, _ in sections]
+    assert len(ancres) == len(set(ancres)), f"ancres dupliquées : {ancres}"
+
+
+def test_decouper_ancre_unique_meme_pour_le_preambule_redecoupe() -> None:
+    # Le préambule (avant le premier titre) a une ancre vide : le suffixe
+    # doit rester une clé stable et non vide même dans ce cas.
+    corps = "\n\n".join("para " + "x" * 100 for _ in range(40))
+    sections = decouper_en_sections(corps, max_chars=500)
+    ancres = [ancre for ancre, _ in sections]
+    assert len(ancres) > 1
+    assert len(ancres) == len(set(ancres))
+    assert all(ancre for ancre in ancres)  # jamais vide
 
 
 def test_decouper_liste_a_puces_dense_respecte_max_chars() -> None:

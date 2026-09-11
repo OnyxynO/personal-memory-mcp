@@ -138,8 +138,19 @@ def decouper_en_sections(contenu: str, max_chars: int = MAX_CHARS_DEFAUT) -> lis
     def vider() -> None:
         texte = "\n".join(buffer).strip()
         if texte:
-            for sous in _redecouper(texte, max_chars):
-                sections.append((_slug(titre_courant), sous))
+            slug = _slug(titre_courant)
+            sous_blocs = _redecouper(texte, max_chars)
+            if len(sous_blocs) == 1:
+                sections.append((slug, sous_blocs[0]))
+            else:
+                # Une section redécoupée en plusieurs sous-blocs partage sinon
+                # la même ancre : `source_detail = f"{rel}#{ancre}"` cesserait
+                # d'être une clé unique par chunk, et la réindexation delta
+                # (qui compare par `source_detail`) écraserait un sous-bloc par
+                # le suivant à chaque run (bug réel constaté le 2026-09-11).
+                prefixe = slug or "bloc"
+                for i, sous in enumerate(sous_blocs, start=1):
+                    sections.append((f"{prefixe}-{i}", sous))
 
     for ligne in contenu.splitlines():
         if _RE_TITRE.match(ligne):
