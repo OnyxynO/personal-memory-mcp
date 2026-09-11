@@ -66,6 +66,21 @@ def test_decouper_donne_une_ancre_unique_par_sous_bloc() -> None:
     assert len(ancres) == len(set(ancres)), f"ancres dupliquées : {ancres}"
 
 
+def test_decouper_desambiguise_les_titres_de_section_dupliques() -> None:
+    # Régression (bug réel constaté au 1er --full du workspace, 2026-09-11) :
+    # un fichier de post-mortem accumulant des additifs sous un même titre
+    # ("## Leçons apprises" répété à chaque addendum) produit deux sections
+    # avec la même ancre naturelle — même sans aucun redécoupage. Le fix
+    # précédent (suffixe -N sur les sous-blocs d'UNE section trop longue) ne
+    # couvrait pas ce cas : la désambiguïsation doit être globale au document.
+    doc = "# T\n\n## Leçons\nune.\n\n## Leçons\ndeux.\n\n## Leçons\ntrois.\n"
+    sections = decouper_en_sections(doc)
+    ancres = [ancre for ancre, _ in sections]
+    assert len(ancres) == len(set(ancres)), f"ancres dupliquées : {ancres}"
+    lecons = [a for a in ancres if a.startswith("lecons")]
+    assert len(lecons) == 3
+
+
 def test_decouper_ancre_unique_meme_pour_le_preambule_redecoupe() -> None:
     # Le préambule (avant le premier titre) a une ancre vide : le suffixe
     # doit rester une clé stable et non vide même dans ce cas.

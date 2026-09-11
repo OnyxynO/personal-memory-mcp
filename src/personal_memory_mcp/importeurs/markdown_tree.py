@@ -117,12 +117,48 @@ def _redecouper(texte: str, max_chars: int) -> list[str]:
     return blocs
 
 
+def _desambiguiser_ancres(brutes: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Garantit une ancre unique par chunk en suffixant les slugs répétés (-1, -2, …).
+
+    Deux causes de collision, corrigées par la même passe : une section trop
+    longue redécoupée en plusieurs sous-blocs (même titre) ; un titre de
+    section dupliqué dans le document (ex. plusieurs additifs « ## Leçons
+    apprises » accumulés dans un post-mortem). Sans cette garantie,
+    `source_detail = f"{rel}#{ancre}"` cesse d'être une clé unique par chunk,
+    et la réindexation delta (qui compare par `source_detail`) écrase un
+    chunk par le suivant à chaque run (bug réel constaté le 2026-09-11, sur
+    les deux causes, au premier run réel sur le workspace complet).
+
+    Args:
+        brutes: Liste de (slug, texte) dans l'ordre du document, avant
+            désambiguïsation (slugs potentiellement répétés).
+
+    Returns:
+        Liste de (ancre, texte) où chaque ancre est unique.
+    """
+    occurrences: dict[str, int] = {}
+    for slug, _ in brutes:
+        occurrences[slug] = occurrences.get(slug, 0) + 1
+
+    compteur: dict[str, int] = {}
+    resultat: list[tuple[str, str]] = []
+    for slug, texte in brutes:
+        if occurrences[slug] > 1:
+            compteur[slug] = compteur.get(slug, 0) + 1
+            prefixe = slug or "bloc"
+            resultat.append((f"{prefixe}-{compteur[slug]}", texte))
+        else:
+            resultat.append((slug, texte))
+    return resultat
+
+
 def decouper_en_sections(contenu: str, max_chars: int = MAX_CHARS_DEFAUT) -> list[tuple[str, str]]:
     """Découpe un document Markdown en sections (ancre, texte) par titre.
 
     Une section va d'un titre au titre suivant. Le texte inclut la ligne de titre.
     Le préambule avant le premier titre forme une section d'ancre vide. Une section
-    plus longue que max_chars est redécoupée en sous-blocs (même ancre).
+    plus longue que max_chars est redécoupée en sous-blocs. Chaque ancre retournée
+    est unique dans le document (cf. `_desambiguiser_ancres`).
 
     Args:
         contenu: Contenu Markdown brut.
@@ -131,7 +167,7 @@ def decouper_en_sections(contenu: str, max_chars: int = MAX_CHARS_DEFAUT) -> lis
     Returns:
         Liste de tuples (ancre, texte). Vide si le document est vide.
     """
-    sections: list[tuple[str, str]] = []
+    brutes: list[tuple[str, str]] = []
     titre_courant = ""
     buffer: list[str] = []
 
@@ -139,18 +175,8 @@ def decouper_en_sections(contenu: str, max_chars: int = MAX_CHARS_DEFAUT) -> lis
         texte = "\n".join(buffer).strip()
         if texte:
             slug = _slug(titre_courant)
-            sous_blocs = _redecouper(texte, max_chars)
-            if len(sous_blocs) == 1:
-                sections.append((slug, sous_blocs[0]))
-            else:
-                # Une section redécoupée en plusieurs sous-blocs partage sinon
-                # la même ancre : `source_detail = f"{rel}#{ancre}"` cesserait
-                # d'être une clé unique par chunk, et la réindexation delta
-                # (qui compare par `source_detail`) écraserait un sous-bloc par
-                # le suivant à chaque run (bug réel constaté le 2026-09-11).
-                prefixe = slug or "bloc"
-                for i, sous in enumerate(sous_blocs, start=1):
-                    sections.append((f"{prefixe}-{i}", sous))
+            for sous in _redecouper(texte, max_chars):
+                brutes.append((slug, sous))
 
     for ligne in contenu.splitlines():
         if _RE_TITRE.match(ligne):
@@ -160,7 +186,7 @@ def decouper_en_sections(contenu: str, max_chars: int = MAX_CHARS_DEFAUT) -> lis
         else:
             buffer.append(ligne)
     vider()
-    return sections
+    return _desambiguiser_ancres(brutes)
 
 
 def _hash(texte: str) -> str:
