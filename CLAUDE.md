@@ -93,8 +93,9 @@ locale + `uv run --project`) :
 - **Chemin d'échec = zéro mutation d'état.** Au restore, le modèle de l'archive est adopté **en mémoire seulement** (`_extracteur._modele_embeddings`) — c'est lui que le pré-check Ollama et le contrôle de dimension éprouvent —, et la config DB `modele_embeddings` n'est écrite qu'une fois toutes les vérifications passées, juste avant la boucle d'insertion. Écrire la config avant laisserait une base marquée d'un modèle jamais utilisé sur une sortie en exit 1.
 - **Le snapshot ne conserve que les champs du contrat — le dire, et le signaler.** `importer_faits` ne relit que les clés listées en §10 de `SPEC_TECHNIQUE.md` : toute autre clé disparaît au ré-export. Sur un contrat inter-projets (`atelier`), un producteur plus récent verrait ses données s'évaporer en silence. `charger_faits_json` recense les clés hors contrat (`SnapshotFaits.cles_inattendues`) et la CLI avertit en jaune, sans bloquer — un champ en plus n'est pas une corruption. Un vrai ajout de champ = incrément de `version_format`.
 - **`zip(lot, vecteurs)` sur une réponse d'embedding : toujours vérifier les longueurs.** Si Ollama renvoie moins de vecteurs que de textes, `zip` tronque en silence pendant que le compteur additionne `len(lot)` → des faits disparaissent et le rapport ment. `importer_faits` et `migrer_embeddings` lèvent maintenant une `ValueError` explicite + `strict=True`.
+- **`decouper_en_sections` : une ancre doit être unique dans tout le document, pas seulement par titre.** Deux causes distinctes de collision, toutes deux invisibles sous l'ancien mode purge-puis-réinsertion (aucune notion d'identité stable par chunk) et révélées seulement au 1ᵉʳ run réel du delta sur le workspace complet (2026-09-11) : (1) une section plus longue que `max_chars` redécoupée en plusieurs sous-blocs partageait la même ancre ; (2) un titre de section répété dans un même fichier (ex. plusieurs additifs « ## Leçons apprises » accumulés dans un post-mortem) produit aussi deux ancres identiques, même sans aucun redécoupage. Dans les deux cas, `source_detail = f"{rel}#{ancre}"` cessait d'être une clé unique par chunk : la réindexation delta (qui compare par `source_detail`) écrasait un chunk par le suivant à chaque run, et d'anciennes lignes en doublon héritées du mode purge n'étaient jamais nettoyées (~1100 chunks touchés en réel). Remède : `_desambiguiser_ancres` fait une seule passe globale au document après découpage — tout slug apparaissant plus d'une fois (quelle qu'en soit la cause) est suffixé `-1`, `-2`, … Généraliser toute nouvelle logique de délimitation de chunk sur l'hypothèse « une ancre = un chunk unique », jamais « une ancre = un titre ».
 
-### En cours — réindexation delta de `import markdown-tree` (2026-09-11, non publié)
+### ✅ Réindexation delta de `import markdown-tree` (2026-09-11) — validée en réel, pas encore publiée
 
 Suite au design `_ideas/Atelier/2026-09-07-reindexation-delta-personal-memory-design.md` (~30 min
 de ré-embedding intégral même pour 6 fichiers modifiés, + échec silencieux quand Ollama est éteint) :
@@ -114,11 +115,14 @@ de ré-embedding intégral même pour 6 fichiers modifiés, + échec silencieux 
   · exit 0`) constaté le 2026-09-07.
 - Côté `atelier` : `memory reindex --full` propage le flag (pass-through, cf. `projets/atelier/CLAUDE.md`).
 - Tests : `tests/test_storage_delta.py`, `tests/test_service_delta.py`,
-  `tests/test_importeur_markdown_tree.py` (cas delta/modifié/disparu/périmètre/complet),
-  `tests/test_cli_import_markdown_tree.py`. 203 tests passent, Pyright propre.
-- **Pas encore republié sur PyPI** (reste en v0.1.4) ni exercé en conditions réelles sur le
-  workspace complet (~9000 chunks) — à faire avant de considérer le principe #21 (chemin réel)
-  satisfait pour cette feature.
+  `tests/test_importeur_markdown_tree.py` (cas delta/modifié/disparu/périmètre/complet/ancres
+  uniques), `tests/test_cli_import_markdown_tree.py`. 206 tests passent, Pyright propre.
+- **Validée en conditions réelles (principe #21)** sur le workspace complet (581 fichiers,
+  9535 chunks) : 1ᵉʳ run delta = coût plein (revalidation des hash NULL hérités), `--full` de
+  nettoyage, puis run delta sur base propre = **4,6s au lieu de ~30 min**. Deux bugs réels trouvés
+  et corrigés au passage (cf. « Pièges connus »), invisibles aux 206 tests synthétiques.
+- **Pas encore republié sur PyPI** (reste en v0.1.4, `main` a 3 commits d'avance) — à faire en
+  v0.1.5 si le principe se confirme sur quelques cycles de maintenance.
 
 ## Tests
 
@@ -176,7 +180,7 @@ uv run pytest -v            # avec détail par test
   - **Dérivation projet en profondeur 1** sous une base (`projets/<x>` → `<x>` ; familles au niveau famille) — la granularité sous-projet (aligner sur le registry) reste un raffinement à venir
 - ✅ Filtre `--source` sur `search` (2026-08-02, dette §10 de l'Atelier) : `search(..., source=None)` traverse CLI/MCP → `Storage.rechercher`/`rechercher_fts` (même patron que `--projet`, inclus dans le chemin scalaire `vec_distance_cosine`). Permet de scoper une recherche au **corpus curé** (`--source workspace`) sans se faire noyer par les facts d'étude de code ou d'import de conversation qui partagent la DB. Consommé par `atelier role` (briefing scopé). Tests : `tests/test_storage_source.py`.
 - ✅ **v0.1.4 (2026-08-19)** — republication rattrapant mcp SDK 2.0, `import markdown-tree`, `search --json`/`--source`, **snapshot portable** (`export --complet`/`import facts`, tranche A plugin ouroboros) et l'exclusion `infra/`/`secrets/` de l'indexation — développés depuis v0.1.3 mais jamais publiés sur PyPI avant cette republication.
-- ⚠️ **`main` a 1 commit d'avance sur le tag `v0.1.4`** (2026-09-11) : bump `httpx2` 2.9.1→2.12.0 (dev-dep uniquement) — pas republié, pas urgent.
+- ⚠️ **`main` a 4 commits d'avance sur le tag `v0.1.4`** (2026-09-11) : bump `httpx2` 2.9.1→2.12.0 (dev-dep) + réindexation delta de `import markdown-tree` (feature + 2 fixes d'ancres, cf. section dédiée ci-dessus) — pas republié, candidat à v0.1.5.
 
 ## LSP
 
