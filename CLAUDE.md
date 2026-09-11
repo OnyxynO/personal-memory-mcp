@@ -8,7 +8,7 @@ Serveur MCP local qui extrait des faits mémorisables depuis les historiques
 de conversations IA et les expose à tous les clients MCP compatibles.
 
 - **CLI** : `mmcp`
-- **Paquet PyPI** : `personal-memory-mcp` — **publié v0.1.4 le 2026-08-19** (https://pypi.org/project/personal-memory-mcp/0.1.4/)
+- **Paquet PyPI** : `personal-memory-mcp` — **publié v0.1.5 le 2026-09-11** (https://pypi.org/project/personal-memory-mcp/0.1.5/)
 - **Install end-user** : `pip install personal-memory-mcp`
 - **Données** : `~/.personal-memory/`
 - **Usage** : personnel, pas de multi-utilisateur
@@ -25,6 +25,17 @@ Workflow de release (validé v0.1.1 → v0.1.3) :
 - **Token PyPI** : scopé projet dans `infra/.env` local (`PYPI_TOKEN`), gitignored. Le token global est dans `infra/pypi-tokens.md` (workspace racine).
 
 Packaging (depuis v0.1.1) : LICENSE MIT à la racine + `license = "MIT"` + `license-files = ["LICENSE"]` (PEP 621) ; `[project.urls]` Homepage/Repository/Issues/Changelog ; `anthropic` **uniquement en dev-dep** (`[dependency-groups] dev`, tests d'intégration haiku) — pas dans le paquet publié.
+
+### v0.1.5 (2026-09-11) — réindexation delta, garde-fou Ollama
+- **Réindexation delta de `import markdown-tree`** : compare un hash sha256 par chunk plutôt que
+  de purger-et-réinsérer tout le périmètre à chaque run. `--full` force l'ancien comportement.
+  Gain mesuré en réel : **4,6s au lieu de ~30 min** (581 fichiers, 9535 chunks). Détail complet
+  dans la section dédiée plus bas.
+- **Garde-fou Ollama** sur `import markdown-tree` (réutilise `_verifier_ollama_embeddings`) :
+  refuse avant toute purge/insertion si le backend est injoignable.
+- **Fix ancres uniques** dans `decouper_en_sections` (redécoupage de section longue + titres
+  dupliqués dans un même fichier).
+- Bump `httpx2` 2.9.1 → 2.12.0 (dev-dep).
 
 ### v0.1.4 (2026-08-19) — mcp SDK 2.0, indexation arbre markdown, recherche scopée
 Republication rattrapant trois chantiers développés depuis v0.1.3 mais jamais publiés (branche
@@ -95,7 +106,7 @@ locale + `uv run --project`) :
 - **`zip(lot, vecteurs)` sur une réponse d'embedding : toujours vérifier les longueurs.** Si Ollama renvoie moins de vecteurs que de textes, `zip` tronque en silence pendant que le compteur additionne `len(lot)` → des faits disparaissent et le rapport ment. `importer_faits` et `migrer_embeddings` lèvent maintenant une `ValueError` explicite + `strict=True`.
 - **`decouper_en_sections` : une ancre doit être unique dans tout le document, pas seulement par titre.** Deux causes distinctes de collision, toutes deux invisibles sous l'ancien mode purge-puis-réinsertion (aucune notion d'identité stable par chunk) et révélées seulement au 1ᵉʳ run réel du delta sur le workspace complet (2026-09-11) : (1) une section plus longue que `max_chars` redécoupée en plusieurs sous-blocs partageait la même ancre ; (2) un titre de section répété dans un même fichier (ex. plusieurs additifs « ## Leçons apprises » accumulés dans un post-mortem) produit aussi deux ancres identiques, même sans aucun redécoupage. Dans les deux cas, `source_detail = f"{rel}#{ancre}"` cessait d'être une clé unique par chunk : la réindexation delta (qui compare par `source_detail`) écrasait un chunk par le suivant à chaque run, et d'anciennes lignes en doublon héritées du mode purge n'étaient jamais nettoyées (~1100 chunks touchés en réel). Remède : `_desambiguiser_ancres` fait une seule passe globale au document après découpage — tout slug apparaissant plus d'une fois (quelle qu'en soit la cause) est suffixé `-1`, `-2`, … Généraliser toute nouvelle logique de délimitation de chunk sur l'hypothèse « une ancre = un chunk unique », jamais « une ancre = un titre ».
 
-### ✅ Réindexation delta de `import markdown-tree` (2026-09-11) — validée en réel, pas encore publiée
+### ✅ Réindexation delta de `import markdown-tree` (2026-09-11) — validée en réel, publiée v0.1.5
 
 Suite au design `_ideas/Atelier/2026-09-07-reindexation-delta-personal-memory-design.md` (~30 min
 de ré-embedding intégral même pour 6 fichiers modifiés, + échec silencieux quand Ollama est éteint) :
@@ -121,8 +132,7 @@ de ré-embedding intégral même pour 6 fichiers modifiés, + échec silencieux 
   9535 chunks) : 1ᵉʳ run delta = coût plein (revalidation des hash NULL hérités), `--full` de
   nettoyage, puis run delta sur base propre = **4,6s au lieu de ~30 min**. Deux bugs réels trouvés
   et corrigés au passage (cf. « Pièges connus »), invisibles aux 206 tests synthétiques.
-- **Pas encore republié sur PyPI** (reste en v0.1.4, `main` a 3 commits d'avance) — à faire en
-  v0.1.5 si le principe se confirme sur quelques cycles de maintenance.
+- **Publié sur PyPI v0.1.5 (2026-09-11)** — https://pypi.org/project/personal-memory-mcp/0.1.5/
 
 ## Tests
 
@@ -143,9 +153,9 @@ uv run pytest -v            # avec détail par test
 - `tests/test_import_facts.py` — `importer_faits()` (batching, dates, lot incomplet) + lecture/validation du fichier de snapshot
 - `tests/test_cli_import_facts.py` — garde-fous CLI du snapshot (base non vide, Ollama, modèle divergent, `--complet` + csv/catégorie) et round-trip export → import
 
-## État (août 2026) — v0.1.4 publiée
+## État (septembre 2026) — v0.1.5 publiée
 
-**Projet livré.** Dernière version PyPI **v0.1.4 (2026-08-19)** ; publication initiale v0.1.0 le 2026-05-16. `pip install personal-memory-mcp`
+**Projet livré.** Dernière version PyPI **v0.1.5 (2026-09-11)** ; publication initiale v0.1.0 le 2026-05-16. `pip install personal-memory-mcp`
 - GitHub : https://github.com/OnyxynO/personal-memory-mcp/releases/tag/v0.1.0
 - PyPI : https://pypi.org/project/personal-memory-mcp/
 - Token PyPI : `infra/.env` (ignoré git)
@@ -180,7 +190,7 @@ uv run pytest -v            # avec détail par test
   - **Dérivation projet en profondeur 1** sous une base (`projets/<x>` → `<x>` ; familles au niveau famille) — la granularité sous-projet (aligner sur le registry) reste un raffinement à venir
 - ✅ Filtre `--source` sur `search` (2026-08-02, dette §10 de l'Atelier) : `search(..., source=None)` traverse CLI/MCP → `Storage.rechercher`/`rechercher_fts` (même patron que `--projet`, inclus dans le chemin scalaire `vec_distance_cosine`). Permet de scoper une recherche au **corpus curé** (`--source workspace`) sans se faire noyer par les facts d'étude de code ou d'import de conversation qui partagent la DB. Consommé par `atelier role` (briefing scopé). Tests : `tests/test_storage_source.py`.
 - ✅ **v0.1.4 (2026-08-19)** — republication rattrapant mcp SDK 2.0, `import markdown-tree`, `search --json`/`--source`, **snapshot portable** (`export --complet`/`import facts`, tranche A plugin ouroboros) et l'exclusion `infra/`/`secrets/` de l'indexation — développés depuis v0.1.3 mais jamais publiés sur PyPI avant cette republication.
-- ⚠️ **`main` a 4 commits d'avance sur le tag `v0.1.4`** (2026-09-11) : bump `httpx2` 2.9.1→2.12.0 (dev-dep) + réindexation delta de `import markdown-tree` (feature + 2 fixes d'ancres, cf. section dédiée ci-dessus) — pas republié, candidat à v0.1.5.
+- ✅ **v0.1.5 (2026-09-11)** — réindexation delta de `import markdown-tree` (hash de contenu, gain réel ~30 min → 4,6s), garde-fou Ollama, fix des ancres uniques dans `decouper_en_sections`, bump `httpx2`. Détail complet dans la section dédiée plus haut.
 
 ## LSP
 
