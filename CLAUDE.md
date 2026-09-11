@@ -35,6 +35,13 @@ locale + `uv run --project`) :
 - **`search --json`** (sortie machine sans rich) et **`search --source`** (scope par source, ex.
   `--source workspace` pour ne remonter que le corpus curé) — développés pour `atelier role`
   (briefing dogfoodé)
+- **`mmcp export --complet` / `mmcp import facts <json>`** (snapshot portable, tranche A du plugin
+  ouroboros) : enveloppe `{version_format, modele_embeddings, dim_embeddings, date_export, faits[]}`,
+  ré-embed par lots de 32 au restore. Aller-retour réel validé (7543 faits, écart de score moyen
+  0.0000). Voir §« Pièges connus » pour les cas limites (reprise après échec partiel, dimension
+  d'embedding divergente, clés hors contrat).
+- **Exclusion `infra/` et `secrets/` de l'import markdown-tree** — ces répertoires ne sont jamais
+  indexés, même s'ils sont sous la racine scannée (fuite trouvée par le run réel du snapshot).
 
 ### v0.1.3 (2026-06-21) — cohérence embeddings entre versions d'Ollama
 - `nomic-embed-text` (modèle d'embedding **par défaut du code**) produit des vecteurs différents entre versions mineures d'Ollama (issue ollama/ollama#14449) → scores de similarité dégradés après upgrade
@@ -142,7 +149,8 @@ uv run pytest -v            # avec détail par test
   - CLI `mmcp import markdown-tree <racine>` (options `--inclure-refs`, `--projet-base`, `--projet-defaut`)
   - **Dérivation projet en profondeur 1** sous une base (`projets/<x>` → `<x>` ; familles au niveau famille) — la granularité sous-projet (aligner sur le registry) reste un raffinement à venir
 - ✅ Filtre `--source` sur `search` (2026-08-02, dette §10 de l'Atelier) : `search(..., source=None)` traverse CLI/MCP → `Storage.rechercher`/`rechercher_fts` (même patron que `--projet`, inclus dans le chemin scalaire `vec_distance_cosine`). Permet de scoper une recherche au **corpus curé** (`--source workspace`) sans se faire noyer par les facts d'étude de code ou d'import de conversation qui partagent la DB. Consommé par `atelier role` (briefing scopé). Tests : `tests/test_storage_source.py`.
-- ✅ **v0.1.4 (2026-08-19)** — republication rattrapant mcp SDK 2.0, `import markdown-tree` et `search --json`/`--source`, développés depuis v0.1.3 mais jamais publiés sur PyPI (installs PyPI antérieures = ni la migration mcp 2.0 ni ces trois chantiers).
+- ✅ **v0.1.4 (2026-08-19)** — republication rattrapant mcp SDK 2.0, `import markdown-tree`, `search --json`/`--source`, **snapshot portable** (`export --complet`/`import facts`, tranche A plugin ouroboros) et l'exclusion `infra/`/`secrets/` de l'indexation — développés depuis v0.1.3 mais jamais publiés sur PyPI avant cette republication.
+- ⚠️ **`main` a 1 commit d'avance sur le tag `v0.1.4`** (2026-09-11) : bump `httpx2` 2.9.1→2.12.0 (dev-dep uniquement) — pas republié, pas urgent.
 
 ## LSP
 
