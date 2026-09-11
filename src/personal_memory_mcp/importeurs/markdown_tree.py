@@ -10,6 +10,7 @@ Générique : les spécificités d'un workspace (exclusions, base de dérivation
 projet, projet par défaut) sont des paramètres, pas des valeurs codées en dur.
 """
 
+import hashlib
 import re
 import time
 import unicodedata
@@ -151,6 +152,11 @@ def decouper_en_sections(contenu: str, max_chars: int = MAX_CHARS_DEFAUT) -> lis
     return sections
 
 
+def _hash(texte: str) -> str:
+    """Hash sha256 d'un chunk, pour la comparaison delta sans embedding."""
+    return hashlib.sha256(texte.encode("utf-8")).hexdigest()
+
+
 def deriver_projet(chemin_relatif: str, base: str, defaut: str | None) -> str | None:
     """Dérive le projet de rattachement depuis le chemin relatif (profondeur 1).
 
@@ -224,21 +230,56 @@ class ImporteurMarkdownTree(ImporteurBase):
             retenus.append(chemin)
         return retenus
 
+    def _purger_perimetre(self, racine: Path, fichiers: list[Path]) -> None:
+        """Purge idempotente, scopée aux projets du périmètre (mode `complet`).
+
+        Ré-indexer un arbre remplace les projets qu'il couvre sans toucher aux
+        autres déjà indexés, et sans jamais empiler de doublons quel que soit
+        le nombre de relances. Si un fichier n'a pas de projet (projet_defaut
+        absent), le scope est indéterminé → repli sûr sur la purge totale de
+        la source (toujours idempotente, jamais une purge mal ciblée).
+        """
+        projets_perimetre = {
+            deriver_projet(f.relative_to(racine).as_posix(), self._projet_base, self._projet_defaut)
+            for f in fichiers
+        }
+        if None in projets_perimetre or "" in projets_perimetre:
+            self._service.purger_source(self.SOURCE)
+        else:
+            for projet_p in projets_perimetre:
+                self._service.purger_source(self.SOURCE, projet=projet_p)
+
     def importer(
         self,
         chemin: str | None = None,
         on_progress: Callable[[int, int], None] | None = None,
+        complet: bool = False,
     ) -> dict:
         """Importe l'arbre Markdown enraciné en `chemin`.
+
+        Mode par défaut (**delta**) : compare le hash de chaque chunk déjà
+        indexé (`source_detail`) au hash de son contenu actuel — un chunk
+        inchangé n'est jamais ré-embeddé, un chunk modifié est mis à jour en
+        place (même id), un chunk disparu (fichier ou section supprimée) est
+        retiré. Un arbre de ~9000 chunks avec 6 fichiers modifiés ne coûte
+        alors que l'embedding de ces 6 fichiers, plus quelques secondes de
+        lecture/hash pour le reste — au lieu d'un ré-embedding complet.
+
+        Mode `complet=True` : ancien comportement (purge du périmètre puis
+        réinsertion totale). Nécessaire après un changement de modèle
+        d'embedding (les hash de contenu ne suffisent pas à revalider des
+        vecteurs produits par un autre espace vectoriel).
 
         Args:
             chemin: Racine à indexer (obligatoire pour cet importeur).
             on_progress: Callback optionnel de progression, appelé une fois par
                 fichier avec `(fichiers_traités, total_fichiers)`. Permet à
                 l'appelant (CLI) d'afficher une barre de progression.
+            complet: Si True, force la purge-puis-réinsertion totale du
+                périmètre au lieu du delta (défaut: False).
 
         Returns:
-            Dict de `ResultatImport.as_dict()` (ajoutes, dedupliques, duree, nb_erreurs).
+            Dict de `ResultatImport.as_dict()` (ajoutes, mis_a_jour, duree, nb_erreurs).
 
         Raises:
             ValueError: Si `chemin` est None.
@@ -254,26 +295,19 @@ class ImporteurMarkdownTree(ImporteurBase):
         res = ResultatImport()
         fichiers = self._parcourir(racine)
 
-        # Purge idempotente, scopée aux projets du périmètre : ré-indexer un
-        # arbre remplace les projets qu'il couvre sans toucher aux autres déjà
-        # indexés, et sans jamais empiler de doublons quel que soit le nombre de
-        # relances. Si un fichier n'a pas de projet (projet_defaut absent), le
-        # scope est indéterminé → repli sûr sur la purge totale de la source
-        # (toujours idempotente, jamais une purge mal ciblée).
-        projets_perimetre = {
-            deriver_projet(f.relative_to(racine).as_posix(), self._projet_base, self._projet_defaut)
-            for f in fichiers
-        }
-        if None in projets_perimetre or "" in projets_perimetre:
-            self._service.purger_source(self.SOURCE)
+        if complet:
+            self._purger_perimetre(racine, fichiers)
+            existants: dict[str, tuple[int, str | None, str | None]] = {}
         else:
-            for projet_p in projets_perimetre:
-                self._service.purger_source(self.SOURCE, projet=projet_p)
+            existants = self._service.chunks_existants(self.SOURCE)
 
+        vus: set[str] = set()
+        projets_perimetre: set[str | None] = set()
         total = len(fichiers)
         for i, fichier in enumerate(fichiers, start=1):
             rel = fichier.relative_to(racine).as_posix()
             projet = deriver_projet(rel, self._projet_base, self._projet_defaut)
+            projets_perimetre.add(projet)
             try:
                 contenu = fichier.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError) as e:
@@ -282,21 +316,41 @@ class ImporteurMarkdownTree(ImporteurBase):
             else:
                 for ancre, texte in decouper_en_sections(contenu, self._max_chars):
                     detail = f"{rel}#{ancre}" if ancre else rel
+                    vus.add(detail)
                     try:
-                        self._service.add(
-                            texte,
-                            categorie="doc",
-                            source=self.SOURCE,
-                            projet=projet,
-                            source_detail=detail,
-                            dedup=False,
-                        )
-                        res.ajoutes += 1
+                        existant = None if complet else existants.get(detail)
+                        if existant is not None and existant[1] == _hash(texte):
+                            continue  # chunk inchangé : zéro embedding
+                        if existant is not None:
+                            self._service.mettre_a_jour_chunk(existant[0], texte)
+                            res.mis_a_jour += 1
+                        else:
+                            self._service.add(
+                                texte,
+                                categorie="doc",
+                                source=self.SOURCE,
+                                projet=projet,
+                                source_detail=detail,
+                                dedup=False,
+                            )
+                            res.ajoutes += 1
                     except Exception as e:  # noqa: BLE001 — un chunk KO ne doit pas tout arrêter
                         res.nb_erreurs += 1
                         res.erreurs.append(f"{detail}: {e}")
             if on_progress is not None:
                 on_progress(i, total)
+
+        if not complet:
+            # Nettoyage : chunks du périmètre parcouru dont le fichier ou la
+            # section a disparu. Restreint au périmètre pour ne jamais toucher
+            # un projet que ce run n'a pas visité (cf. _purger_perimetre).
+            a_supprimer = [
+                id_
+                for detail, (id_, _, projet_existant) in existants.items()
+                if detail not in vus and projet_existant in projets_perimetre
+            ]
+            if a_supprimer:
+                self._service.supprimer_definitivement(a_supprimer)
 
         res.duree = time.monotonic() - debut
         return res.as_dict()

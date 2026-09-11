@@ -94,6 +94,32 @@ locale + `uv run --project`) :
 - **Le snapshot ne conserve que les champs du contrat — le dire, et le signaler.** `importer_faits` ne relit que les clés listées en §10 de `SPEC_TECHNIQUE.md` : toute autre clé disparaît au ré-export. Sur un contrat inter-projets (`atelier`), un producteur plus récent verrait ses données s'évaporer en silence. `charger_faits_json` recense les clés hors contrat (`SnapshotFaits.cles_inattendues`) et la CLI avertit en jaune, sans bloquer — un champ en plus n'est pas une corruption. Un vrai ajout de champ = incrément de `version_format`.
 - **`zip(lot, vecteurs)` sur une réponse d'embedding : toujours vérifier les longueurs.** Si Ollama renvoie moins de vecteurs que de textes, `zip` tronque en silence pendant que le compteur additionne `len(lot)` → des faits disparaissent et le rapport ment. `importer_faits` et `migrer_embeddings` lèvent maintenant une `ValueError` explicite + `strict=True`.
 
+### En cours — réindexation delta de `import markdown-tree` (2026-09-11, non publié)
+
+Suite au design `_ideas/Atelier/2026-09-07-reindexation-delta-personal-memory-design.md` (~30 min
+de ré-embedding intégral même pour 6 fichiers modifiés, + échec silencieux quand Ollama est éteint) :
+
+- **Delta par défaut** : colonne `faits.contenu_hash` (sha256, migration idempotente sur bases
+  existantes) + `Storage.lister_hashes(source)` → compare hash déjà indexé vs hash du contenu
+  actuel par `source_detail`. Inchangé → skip (zéro embedding) ; modifié → `mettre_a_jour_contenu`
+  (même id, contenu+hash+vecteur+FTS resynchronisés manuellement — la content table FTS5 externe
+  n'a aucun trigger sur UPDATE) ; nouveau → `add` classique ; disparu → `supprimer_definitivement`
+  (hard delete ciblé par id, sans le rebuild FTS complet de `purger_source`).
+- **`--full`** (CLI) / `complet=True` (`ImporteurMarkdownTree.importer`) : reproduit l'ancien
+  comportement purge-puis-réinsertion totale, nécessaire après un changement de modèle d'embedding
+  (le delta compare des hash de texte, pas des vecteurs).
+- **Garde-fou Ollama** : `import markdown-tree` réutilise `_verifier_ollama_embeddings` (même
+  fonction que `import facts`) et refuse **avant** toute purge/insertion si Ollama ou le modèle
+  d'embedding est indisponible — corrige l'échec silencieux (`577/577 · +0 chunks · 9462 erreurs
+  · exit 0`) constaté le 2026-09-07.
+- Côté `atelier` : `memory reindex --full` propage le flag (pass-through, cf. `projets/atelier/CLAUDE.md`).
+- Tests : `tests/test_storage_delta.py`, `tests/test_service_delta.py`,
+  `tests/test_importeur_markdown_tree.py` (cas delta/modifié/disparu/périmètre/complet),
+  `tests/test_cli_import_markdown_tree.py`. 203 tests passent, Pyright propre.
+- **Pas encore republié sur PyPI** (reste en v0.1.4) ni exercé en conditions réelles sur le
+  workspace complet (~9000 chunks) — à faire avant de considérer le principe #21 (chemin réel)
+  satisfait pour cette feature.
+
 ## Tests
 
 ```bash

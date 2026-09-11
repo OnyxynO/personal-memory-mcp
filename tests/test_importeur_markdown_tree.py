@@ -223,3 +223,92 @@ def test_importer_racine_absente_leve(tmp_path: Path) -> None:
     imp = ImporteurMarkdownTree(svc)
     with pytest.raises(FileNotFoundError):
         imp.importer(str(tmp_path / "introuvable"))
+
+
+# --- Réindexation delta (hash de contenu) ---
+# Cf. _ideas/Atelier/2026-09-07-reindexation-delta-personal-memory-design.md
+
+
+def _lignes(svc: _ServiceTest) -> list:
+    return svc._storage._conn.execute(
+        "SELECT id, source_detail, contenu, date_creation FROM faits ORDER BY id"
+    ).fetchall()
+
+
+def test_delta_ne_reembed_pas_les_chunks_inchanges(tmp_path: Path) -> None:
+    ws = _arbre(tmp_path)
+    svc = _ServiceTest(tmp_path / "m.db")
+    imp = ImporteurMarkdownTree(svc, projet_defaut="ouroboros")
+    imp.importer(str(ws))
+    avant = {(l["id"], l["source_detail"], l["date_creation"]) for l in _lignes(svc)}
+
+    res = imp.importer(str(ws))  # rien n'a changé
+
+    assert res["ajoutes"] == 0
+    assert res["mis_a_jour"] == 0
+    apres = {(l["id"], l["source_detail"], l["date_creation"]) for l in _lignes(svc)}
+    assert apres == avant  # mêmes id, mêmes dates → aucun chunk recréé
+
+
+def test_delta_detecte_et_met_a_jour_un_chunk_modifie(tmp_path: Path) -> None:
+    ws = _arbre(tmp_path)
+    svc = _ServiceTest(tmp_path / "m.db")
+    imp = ImporteurMarkdownTree(svc, projet_defaut="ouroboros")
+    imp.importer(str(ws))
+    id_stack_avant = next(
+        l["id"] for l in _lignes(svc) if l["source_detail"] == "projets/sand/CLAUDE.md#stack"
+    )
+
+    (ws / "projets" / "sand" / "CLAUDE.md").write_text(
+        "# Stack\nLaravel puis Symfony.\n\n## Pièges\nX.\n", encoding="utf-8"
+    )
+    res = imp.importer(str(ws))
+
+    assert res["mis_a_jour"] == 1
+    assert res["ajoutes"] == 0
+    ligne = next(l for l in _lignes(svc) if l["source_detail"] == "projets/sand/CLAUDE.md#stack")
+    assert ligne["id"] == id_stack_avant  # même id : mise à jour, pas recréation
+    assert "Symfony" in ligne["contenu"]
+
+
+def test_delta_supprime_un_chunk_disparu(tmp_path: Path) -> None:
+    ws = _arbre(tmp_path)
+    svc = _ServiceTest(tmp_path / "m.db")
+    imp = ImporteurMarkdownTree(svc, projet_defaut="ouroboros")
+    imp.importer(str(ws))
+    total_avant = svc._storage.compter()["total"]
+
+    (ws / "projets" / "sand" / "CLAUDE.md").write_text("# Stack\nLaravel.\n", encoding="utf-8")
+    imp.importer(str(ws))  # la section "Pièges" a disparu
+
+    details = {l["source_detail"] for l in _lignes(svc)}
+    assert "projets/sand/CLAUDE.md#pieges" not in details
+    assert svc._storage.compter()["total"] == total_avant - 1
+
+
+def test_delta_preserve_les_projets_hors_perimetre(tmp_path: Path) -> None:
+    svc = _ServiceTest(tmp_path / "m.db")
+    imp = ImporteurMarkdownTree(svc, projet_defaut="ouroboros")
+    racine_sand = _arbre_projet(tmp_path / "a", "sand", "deploiement")
+    imp.importer(str(racine_sand))
+    imp.importer(str(_arbre_projet(tmp_path / "b", "vigie", "triggers")))
+
+    # Ré-indexer uniquement le périmètre "sand" ne doit pas toucher "vigie",
+    # même si son fichier n'apparaît pas dans ce périmètre.
+    imp.importer(str(racine_sand))
+    assert _projets_en_base(svc) == {"sand", "vigie"}
+
+
+def test_mode_complet_ignore_le_delta_et_ajoute_tout(tmp_path: Path) -> None:
+    # --full / complet=True : reproduit l'ancien comportement (purge + réinsertion
+    # totale), utile après un changement de modèle d'embedding.
+    ws = _arbre(tmp_path)
+    svc = _ServiceTest(tmp_path / "m.db")
+    imp = ImporteurMarkdownTree(svc, projet_defaut="ouroboros")
+    imp.importer(str(ws))
+
+    res = imp.importer(str(ws), complet=True)
+
+    assert res["ajoutes"] == 3
+    assert res["mis_a_jour"] == 0
+    assert svc._storage.compter()["total"] == 3

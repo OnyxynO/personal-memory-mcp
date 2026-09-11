@@ -566,6 +566,7 @@ def import_cmd(
     inclure_refs: bool = typer.Option(False, "--inclure-refs", help="markdown-tree : indexer aussi _refs/ (repos tiers)"),
     projet_base: str = typer.Option("projets", "--projet-base", help="markdown-tree : base de dérivation du projet"),
     projet_defaut: Annotated[Optional[str], typer.Option("--projet-defaut", help="markdown-tree : projet des fichiers hors base")] = None,
+    full: bool = typer.Option(False, "--full", help="markdown-tree : forcer la purge + réinsertion totale au lieu du delta (après un changement de modèle d'embedding)"),
     force: bool = typer.Option(False, "--force", "-f", help="facts : importer même si la base contient déjà des faits"),
 ):
     """Importe des faits depuis un historique IA ou un arbre Markdown."""
@@ -654,6 +655,11 @@ def import_cmd(
             ImportDejaEnCours,
             verrou_import,
         )
+        # Pré-check Ollama : sans lui, un backend injoignable fait échouer
+        # silencieusement chaque chunk (catché par l'importeur) et la commande
+        # sort en code 0 avec « +0 chunks indexés · N erreurs » (post-mortem
+        # 2026-09-07, clôture kiosque). Même garde-fou que `mmcp import facts`.
+        _verifier_ollama_embeddings(svc)
         exclusions = EXCLUSIONS_DEFAUT if inclure_refs else (EXCLUSIONS_DEFAUT | {"_refs"})
         importeur = ImporteurMarkdownTree(
             svc,
@@ -681,6 +687,7 @@ def import_cmd(
                         on_progress=lambda traites, total: progress.update(
                             tache, completed=traites, total=total
                         ),
+                        complet=full,
                     )
                 except (FileNotFoundError, ValueError) as e:
                     console.print(f"[red]Erreur : {e}[/red]")
@@ -690,6 +697,8 @@ def import_cmd(
             raise typer.Exit(1)
 
         console.print(f"  [green]+ {res['ajoutes']} chunks indexés[/green]")
+        if res.get("mis_a_jour"):
+            console.print(f"  [dim]~ {res['mis_a_jour']} chunks mis à jour[/dim]")
         if res.get("nb_erreurs"):
             console.print(f"  [yellow]! {res['nb_erreurs']} erreurs[/yellow]")
         console.print(f"  [bold]✓ Terminé en {res['duree']}s[/bold]\n")

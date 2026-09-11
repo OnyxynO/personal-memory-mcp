@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS faits (
     date_creation             TEXT NOT NULL,
     date_derniere_utilisation TEXT,
     actif                     INTEGER DEFAULT 1,
-    score_importance          REAL DEFAULT 0.5
+    score_importance          REAL DEFAULT 0.5,
+    contenu_hash              TEXT
 );
 
 CREATE TABLE IF NOT EXISTS imports (
@@ -115,6 +116,17 @@ class Storage:
             self._conn.commit()
         self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_faits_projet ON faits(projet)"
+        )
+        self._conn.commit()
+
+        # M4: colonne contenu_hash (réindexation delta) + index (source, source_detail).
+        # NULL sur les lignes existantes : traitées comme « à revalider » au
+        # premier run delta (hash absent ≠ hash calculé → mise à jour une fois).
+        if "contenu_hash" not in colonnes:
+            self._conn.execute("ALTER TABLE faits ADD COLUMN contenu_hash TEXT")
+            self._conn.commit()
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_faits_source_detail ON faits(source, source_detail)"
         )
         self._conn.commit()
 
@@ -287,6 +299,7 @@ class Storage:
         projet: str | None = None,
         date_creation: str | None = None,
         date_derniere_utilisation: str | None = None,
+        contenu_hash: str | None = None,
     ) -> int:
         """Insère un nouveau fait avec son embedding.
 
@@ -310,6 +323,7 @@ class Storage:
                 fraîchement ajouté). Restauré tel quel par un restore de
                 snapshot, pour ne pas rajeunir artificiellement la mémoire vis
                 à vis de `mmcp clean`.
+            contenu_hash: Hash sha256 du contenu (réindexation delta), ou None.
 
         Returns:
             ID du fait inséré (rowid).
@@ -320,8 +334,9 @@ class Storage:
         curseur = self._conn.execute(
             """
             INSERT INTO faits (contenu, categorie, source, source_detail, projet,
-                               date_creation, date_derniere_utilisation, score_importance)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                               date_creation, date_derniere_utilisation, score_importance,
+                               contenu_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 contenu,
@@ -332,6 +347,7 @@ class Storage:
                 date_creation or _maintenant(),
                 date_derniere_utilisation,
                 score_importance,
+                contenu_hash,
             ),
         )
         rowid: int = curseur.lastrowid  # type: ignore[assignment]
@@ -674,6 +690,102 @@ class Storage:
         self._conn.execute("INSERT INTO faits_fts(faits_fts) VALUES('rebuild')")
         self._conn.commit()
         return len(ids)
+
+    def lister_hashes(self, source: str) -> dict[str, tuple[int, str | None, str | None]]:
+        """Retourne {source_detail: (id, contenu_hash, projet)} pour une source.
+
+        Utilisé par la réindexation delta (`ImporteurMarkdownTree`) pour comparer
+        le hash de chaque chunk déjà indexé au hash du contenu actuel, sans tout
+        ré-embedder. Ne couvre que les faits actifs ayant un `source_detail` (les
+        chunks de document, pas les faits manuels sans provenance de fichier).
+
+        Args:
+            source: Source des faits (ex: "workspace").
+
+        Returns:
+            Dict {source_detail: (id, contenu_hash, projet)}.
+        """
+        rows = self._conn.execute(
+            "SELECT source_detail, id, contenu_hash, projet FROM faits "
+            "WHERE actif = 1 AND source = ? AND source_detail IS NOT NULL",
+            (source,),
+        ).fetchall()
+        return {r["source_detail"]: (r["id"], r["contenu_hash"], r["projet"]) for r in rows}
+
+    def mettre_a_jour_contenu(
+        self, id: int, contenu: str, contenu_hash: str, embedding: list[float]
+    ) -> None:
+        """Met à jour le contenu, le hash et le vecteur d'un fait existant.
+
+        Utilisé par la réindexation delta pour un chunk modifié (même
+        `source_detail`, contenu différent) : évite de le supprimer/réinsérer,
+        ce qui changerait son `id` et son `date_creation`. La table FTS5 externe
+        (`content='faits'`) n'a aucun trigger sur UPDATE : la resynchronisation
+        (delete de l'ancien contenu puis insert du nouveau) est donc manuelle ici.
+
+        Args:
+            id: Identifiant du fait à mettre à jour.
+            contenu: Nouveau texte.
+            contenu_hash: Hash sha256 du nouveau texte.
+            embedding: Nouveau vecteur d'embedding.
+
+        Raises:
+            ValueError: Si aucun fait ne porte cet id.
+        """
+        ancien = self._conn.execute(
+            "SELECT contenu FROM faits WHERE id = ?", (id,)
+        ).fetchone()
+        if ancien is None:
+            raise ValueError(f"Fait introuvable : {id}")
+        self._conn.execute(
+            "INSERT INTO faits_fts(faits_fts, rowid, contenu) VALUES('delete', ?, ?)",
+            (id, ancien["contenu"]),
+        )
+        self._conn.execute(
+            "UPDATE faits SET contenu = ?, contenu_hash = ? WHERE id = ?",
+            (contenu, contenu_hash, id),
+        )
+        self._conn.execute(
+            "INSERT INTO faits_fts(rowid, contenu) VALUES (?, ?)", (id, contenu)
+        )
+        import struct
+        blob = struct.pack(f"{len(embedding)}f", *embedding)
+        self._conn.execute("DELETE FROM faits_vec WHERE rowid = ?", (id,))
+        self._conn.execute(
+            "INSERT INTO faits_vec (rowid, embedding) VALUES (?, ?)", (id, blob)
+        )
+        self._conn.commit()
+
+    def supprimer_definitivement(self, ids: list[int]) -> int:
+        """Supprime définitivement des faits par id (hard delete ciblé).
+
+        Contrairement à `purger_source` (purge large avec rebuild FTS complet),
+        cette méthode cible une liste précise d'id et resynchronise FTS5 ligne
+        par ligne — utilisée par la réindexation delta pour retirer les chunks
+        disparus (fichier ou section supprimé) sans payer un rebuild proportionnel
+        à toute la base.
+
+        Args:
+            ids: Identifiants des faits à supprimer.
+
+        Returns:
+            Nombre de faits effectivement supprimés.
+        """
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        rows = self._conn.execute(
+            f"SELECT id, contenu FROM faits WHERE id IN ({placeholders})", ids
+        ).fetchall()
+        for r in rows:
+            self._conn.execute(
+                "INSERT INTO faits_fts(faits_fts, rowid, contenu) VALUES('delete', ?, ?)",
+                (r["id"], r["contenu"]),
+            )
+        self._conn.execute(f"DELETE FROM faits_vec WHERE rowid IN ({placeholders})", ids)
+        self._conn.execute(f"DELETE FROM faits WHERE id IN ({placeholders})", ids)
+        self._conn.commit()
+        return len(rows)
 
     def compter(self) -> dict[str, Any]:
         """Retourne le compte de faits actifs par catégorie.

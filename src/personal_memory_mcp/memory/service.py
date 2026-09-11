@@ -1,5 +1,6 @@
 """MemoryService — couche métier centrale."""
 
+import hashlib
 import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
@@ -25,6 +26,11 @@ def _version_mineure(version: str) -> str:
     """
     parties = version.split(".")
     return ".".join(parties[:2]) if len(parties) >= 2 else version
+
+
+def _hash_contenu(contenu: str) -> str:
+    """Hash sha256 du contenu, pour la réindexation delta (comparaison sans embedding)."""
+    return hashlib.sha256(contenu.encode("utf-8")).hexdigest()
 
 
 def _normaliser_categorie(categorie: str) -> str:
@@ -206,6 +212,7 @@ class MemoryService:
             embedding=embedding,
             source_detail=source_detail,
             projet=projet,
+            contenu_hash=_hash_contenu(contenu),
         )
         return {"id": id_nouveau, "contenu": contenu, "categorie": categorie, "nouveau": True}
 
@@ -271,6 +278,58 @@ class MemoryService:
             Nombre de faits purgés.
         """
         return self._storage.purger_source(source, projet)
+
+    def chunks_existants(self, source: str) -> dict[str, tuple[int, str | None, str | None]]:
+        """Expose les hash de contenu déjà indexés pour une source.
+
+        Fine délégation à `Storage.lister_hashes`, consommée par la
+        réindexation delta (`ImporteurMarkdownTree`) pour ne ré-embedder que
+        les chunks dont le hash a changé.
+
+        Args:
+            source: Source des faits (ex: "workspace").
+
+        Returns:
+            Dict {source_detail: (id, contenu_hash, projet)}.
+        """
+        return self._storage.lister_hashes(source)
+
+    def mettre_a_jour_chunk(self, id: int, contenu: str) -> dict[str, Any]:
+        """Met à jour un chunk existant (contenu, hash, embedding) sans le recréer.
+
+        Utilisé par la réindexation delta pour un chunk modifié : préserve
+        l'`id` et le `date_creation` d'origine, contrairement à un
+        supprimer-puis-réinsérer.
+
+        Args:
+            id: Identifiant du fait à mettre à jour.
+            contenu: Nouveau texte du chunk.
+
+        Returns:
+            Dict avec clés: id, contenu.
+
+        Raises:
+            ValueError: Si l'embedding ne peut pas être calculé, ou si aucun
+                fait ne porte cet id.
+        """
+        [embedding] = self._extracteur.embeddings([contenu])
+        self._assurer_vecteurs_init(embedding)
+        self._storage.mettre_a_jour_contenu(id, contenu, _hash_contenu(contenu), embedding)
+        return {"id": id, "contenu": contenu}
+
+    def supprimer_definitivement(self, ids: Sequence[int]) -> int:
+        """Supprime définitivement une liste de faits par id (hard delete ciblé).
+
+        Utilisé par la réindexation delta pour retirer les chunks dont le
+        fichier ou la section source a disparu.
+
+        Args:
+            ids: Identifiants des faits à supprimer.
+
+        Returns:
+            Nombre de faits effectivement supprimés.
+        """
+        return self._storage.supprimer_definitivement(list(ids))
 
     def importer_faits(
         self,
