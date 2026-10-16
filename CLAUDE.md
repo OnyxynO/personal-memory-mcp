@@ -192,6 +192,14 @@ uv run pytest -v            # avec détail par test
 - ✅ **v0.1.4 (2026-08-19)** — republication rattrapant mcp SDK 2.0, `import markdown-tree`, `search --json`/`--source`, **snapshot portable** (`export --complet`/`import facts`, tranche A plugin ouroboros) et l'exclusion `infra/`/`secrets/` de l'indexation — développés depuis v0.1.3 mais jamais publiés sur PyPI avant cette republication.
 - ✅ **v0.1.5 (2026-09-11)** — réindexation delta de `import markdown-tree` (hash de contenu, gain réel ~30 min → 4,6s), garde-fou Ollama, fix des ancres uniques dans `decouper_en_sections`, bump `httpx2`. Détail complet dans la section dédiée plus haut.
 
+### À faire
+- ⬜ **Journaliser chaque `import markdown-tree` dans la table `imports`** (constat du 2026-10-16) :
+  la table est vide, l'importeur n'y écrit rien → aucune trace de durée ni de volume d'une
+  réindexation à l'autre (`duree_secondes`, `nb_faits_ajoutes`, `nb_faits_mis_a_jour` existent
+  déjà). Repère du jour : delta en 2 min 18 s, 657 ajoutés, 130 mis à jour. Au passage, vérifier si
+  `date_derniere_utilisation` est mise à jour par `search` (10 420 faits sur 10 538 sans valeur —
+  ce qui rendrait aussi `mmcp clean` aveugle).
+
 ## LSP
 
 typescript-lsp non applicable. pyright-lsp ✅ actif globalement.
