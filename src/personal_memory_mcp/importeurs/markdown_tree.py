@@ -390,4 +390,12 @@ class ImporteurMarkdownTree(ImporteurBase):
                 self._service.supprimer_definitivement(a_supprimer)
 
         res.duree = time.monotonic() - debut
+        self._service._storage.enregistrer_import(
+            type="markdown-tree",
+            chemin=str(racine),
+            nb_ajoutes=res.ajoutes,
+            nb_dedupliques=0,  # dedup=False : un chunk n'est jamais écarté comme doublon
+            nb_mis_a_jour=res.mis_a_jour,
+            duree=res.duree,
+        )
         return res.as_dict()

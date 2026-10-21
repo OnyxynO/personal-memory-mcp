@@ -351,3 +351,25 @@ def test_mode_complet_ignore_le_delta_et_ajoute_tout(tmp_path: Path) -> None:
     assert res["ajoutes"] == 3
     assert res["mis_a_jour"] == 0
     assert svc._storage.compter()["total"] == 3
+
+
+def test_chaque_import_est_journalise_dans_la_table_imports(tmp_path: Path) -> None:
+    # Constat du 2026-10-16 : la table `imports` restait vide après les
+    # réindexations du workspace → aucune trace de durée ni de volume d'un run
+    # à l'autre. Chaque run (initial puis delta) doit y laisser une ligne.
+    ws = _arbre(tmp_path)
+    svc = _ServiceTest(tmp_path / "m.db")
+    imp = ImporteurMarkdownTree(svc, projet_defaut="ouroboros")
+    imp.importer(str(ws))
+    (ws / "projets" / "sand" / "CLAUDE.md").write_text(
+        "# Stack\nLaravel puis Symfony.\n\n## Pièges\nX.\n", encoding="utf-8"
+    )
+    imp.importer(str(ws))
+
+    lignes = svc._storage._conn.execute(
+        "SELECT type, chemin, nb_faits_ajoutes, nb_faits_mis_a_jour, duree_secondes"
+        " FROM imports ORDER BY id"
+    ).fetchall()
+    assert [(l["type"], l["chemin"]) for l in lignes] == [("markdown-tree", str(ws))] * 2
+    assert [(l["nb_faits_ajoutes"], l["nb_faits_mis_a_jour"]) for l in lignes] == [(3, 0), (0, 1)]
+    assert all(l["duree_secondes"] is not None for l in lignes)

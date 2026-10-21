@@ -193,12 +193,20 @@ uv run pytest -v            # avec détail par test
 - ✅ **v0.1.5 (2026-09-11)** — réindexation delta de `import markdown-tree` (hash de contenu, gain réel ~30 min → 4,6s), garde-fou Ollama, fix des ancres uniques dans `decouper_en_sections`, bump `httpx2`. Détail complet dans la section dédiée plus haut.
 
 ### À faire
-- ⬜ **Journaliser chaque `import markdown-tree` dans la table `imports`** (constat du 2026-10-16) :
-  la table est vide, l'importeur n'y écrit rien → aucune trace de durée ni de volume d'une
-  réindexation à l'autre (`duree_secondes`, `nb_faits_ajoutes`, `nb_faits_mis_a_jour` existent
-  déjà). Repère du jour : delta en 2 min 18 s, 657 ajoutés, 130 mis à jour. Au passage, vérifier si
-  `date_derniere_utilisation` est mise à jour par `search` (10 420 faits sur 10 538 sans valeur —
-  ce qui rendrait aussi `mmcp clean` aveugle).
+- ✅ **Chaque `import markdown-tree` est journalisé dans la table `imports`** (2026-10-21) : type
+  `markdown-tree`, racine, ajoutés, mis à jour, durée (`nb_faits_dedupliques` toujours 0 : l'importeur
+  n'écarte jamais un chunk comme doublon). Vérifié en réel : 1ʳᵉ ligne = réindexation delta du
+  workspace, 47 ajoutés, 11 mis à jour, 20,6 s. Lecture : `sqlite3 ~/.personal-memory/memory.db
+  "SELECT * FROM imports"`.
+- ⬜ **`mmcp clean` traite « jamais utilisé » comme « expiré », quel que soit l'âge** (constat du
+  2026-10-21). `date_derniere_utilisation` est bien mise à jour par la recherche **vectorielle**
+  (`Storage.rechercher`), pas par le repli FTS (`rechercher_fts`). Seuls les faits qui sortent dans
+  un top-k sont marqués : 10 152 chunks `workspace` sur 10 184 n'ont aucune date, ce qui est
+  normal. Mais `clean` sélectionne `date_derniere_utilisation IS NULL` sans regarder `date_creation`,
+  et proposerait donc de désactiver (`actif = 0`) presque toute la base, chunks `workspace` créés
+  la veille compris. Ces chunks appartiennent à la réindexation, pas au cycle d'expiration. Seul
+  garde-fou actuel : la confirmation `typer.confirm` après la liste. Pistes : exclure la source
+  `workspace`, et appliquer le seuil de 12 mois à `date_creation` quand le fait n'a jamais servi.
 
 ## LSP
 
