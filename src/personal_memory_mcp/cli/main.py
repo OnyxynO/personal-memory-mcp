@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Optional
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -1035,19 +1036,25 @@ def ui(
 
 @app.command()
 def clean():
-    """Supprime les faits expirés (jamais utilisés ou > 12 mois sans utilisation)."""
+    """Supprime les faits expirés : plus de 12 mois sans utilisation, ou créés il y a plus
+    de 12 mois et jamais utilisés. Les chunks `workspace` sont exclus : ils appartiennent
+    à la réindexation (`import markdown-tree`), pas au cycle d'expiration.
+    """
     from datetime import datetime, timezone, timedelta
     svc = _service()
     storage = svc._storage
     seuil_date = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
 
     conn = storage._conn
+    # Seuls les faits sortis d'une recherche vectorielle reçoivent une date d'usage :
+    # « jamais utilisé » ne veut donc pas dire « expiré », l'âge du fait compte aussi.
     rows = conn.execute(
         """
         SELECT id, contenu, categorie, date_creation, date_derniere_utilisation
         FROM faits
         WHERE actif = 1
-          AND (date_derniere_utilisation IS NULL OR date_derniere_utilisation < ?)
+          AND source != 'workspace'
+          AND COALESCE(date_derniere_utilisation, date_creation) < ?
         ORDER BY id
         """,
         (seuil_date,),
@@ -1060,7 +1067,11 @@ def clean():
     console.print(f"\n[bold]Faits expirés[/bold] (dernière utilisation > 12 mois) :\n")
     for r in rows:
         utilisation = r[4][:10] if r[4] else "jamais utilisé"
-        console.print(f"  #{r[0]}  [{r[2]}]  {r[1][:60]}   ({utilisation}, créé {r[3][:10]})")
+        # escape : sans lui, rich lit « [stack] » comme une balise et n'affiche pas la catégorie
+        console.print(
+            f"  #{r[0]}  {escape(f'[{r[2]}]')}  {escape(r[1][:60])}"
+            f"   ({utilisation}, créé {r[3][:10]})"
+        )
 
     console.print()
     confirmer = typer.confirm(f"Supprimer ces {len(rows)} faits ?", default=False)

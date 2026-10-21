@@ -198,7 +198,14 @@ uv run pytest -v            # avec détail par test
   n'écarte jamais un chunk comme doublon). Vérifié en réel : 1ʳᵉ ligne = réindexation delta du
   workspace, 47 ajoutés, 11 mis à jour, 20,6 s. Lecture : `sqlite3 ~/.personal-memory/memory.db
   "SELECT * FROM imports"`.
-- ⬜ **`mmcp clean` traite « jamais utilisé » comme « expiré », quel que soit l'âge** (constat du
+- ✅ **`mmcp clean` corrigé le 2026-10-21** : un fait est proposé s'il n'a pas servi depuis 12 mois,
+  ou, s'il n'a jamais servi, s'il a été créé il y a plus de 12 mois
+  (`COALESCE(date_derniere_utilisation, date_creation) < seuil`). La source `workspace` est exclue.
+  La catégorie s'affiche enfin : rich avalait `[stack]` comme une balise. Tests :
+  `tests/test_cli_clean.py`. Sur une copie de la vraie base : « Aucun fait expiré », contre environ
+  10 400 faits proposés avant. Reste : le repli FTS (`rechercher_fts`) ne met pas
+  `date_derniere_utilisation` à jour. Historique du constat :
+- **`mmcp clean` traitait « jamais utilisé » comme « expiré », quel que soit l'âge** (constat du
   2026-10-21). `date_derniere_utilisation` est bien mise à jour par la recherche **vectorielle**
   (`Storage.rechercher`), pas par le repli FTS (`rechercher_fts`). Seuls les faits qui sortent dans
   un top-k sont marqués : 10 152 chunks `workspace` sur 10 184 n'ont aucune date, ce qui est
