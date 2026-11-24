@@ -8,7 +8,7 @@ Serveur MCP local qui extrait des faits mémorisables depuis les historiques
 de conversations IA et les expose à tous les clients MCP compatibles.
 
 - **CLI** : `mmcp`
-- **Paquet PyPI** : `personal-memory-mcp` — **publié v0.1.5 le 2026-09-11** (https://pypi.org/project/personal-memory-mcp/0.1.5/)
+- **Paquet PyPI** : `personal-memory-mcp` — **publié v0.1.6 le 2026-11-24** (https://pypi.org/project/personal-memory-mcp/0.1.6/)
 - **Install end-user** : `pip install personal-memory-mcp`
 - **Données** : `~/.personal-memory/`
 - **Usage** : personnel, pas de multi-utilisateur
@@ -25,6 +25,13 @@ Workflow de release (validé v0.1.1 → v0.1.3) :
 - **Token PyPI** : scopé projet dans `infra/.env` local (`PYPI_TOKEN`), gitignored. Le token global est dans `infra/pypi-tokens.md` (workspace racine).
 
 Packaging (depuis v0.1.1) : LICENSE MIT à la racine + `license = "MIT"` + `license-files = ["LICENSE"]` (PEP 621) ; `[project.urls]` Homepage/Repository/Issues/Changelog ; `anthropic` **uniquement en dev-dep** (`[dependency-groups] dev`, tests d'intégration haiku) — pas dans le paquet publié.
+
+### v0.1.6 (2026-11-24) — `mmcp clean` corrigé, imports journalisés
+- `mmcp clean` ne propose plus les faits récents jamais utilisés.
+- Chaque import `markdown-tree` est journalisé dans la table `imports` (visible dans `mmcp status`).
+- Dépendances verrouillées mises à jour (mcp 2.3, pydantic 2.14, starlette 1.10) ; `anthropic` (dev) maintenu en 1.x.
+- Tests d'interface : `uv run playwright install chromium` nécessaire après une montée de Playwright.
+- `uv lock --exclude-newer` inscrit une section `[options]` dans `uv.lock` : la retirer, puis `uv lock --check`.
 
 ### v0.1.5 (2026-09-11) — réindexation delta, garde-fou Ollama
 - **Réindexation delta de `import markdown-tree`** : compare un hash sha256 par chunk plutôt que
@@ -132,12 +139,12 @@ de ré-embedding intégral même pour 6 fichiers modifiés, + échec silencieux 
   9535 chunks) : 1ᵉʳ run delta = coût plein (revalidation des hash NULL hérités), `--full` de
   nettoyage, puis run delta sur base propre = **4,6s au lieu de ~30 min**. Deux bugs réels trouvés
   et corrigés au passage (cf. « Pièges connus »), invisibles aux 206 tests synthétiques.
-- **Publié sur PyPI v0.1.5 (2026-09-11)** — https://pypi.org/project/personal-memory-mcp/0.1.5/
+- **Publié sur PyPI v0.1.6 (2026-11-24)** — https://pypi.org/project/personal-memory-mcp/0.1.6/
 
 ## Tests
 
 ```bash
-uv run pytest               # 98 tests (96 sans réseau + 2 haiku skippés), ~11s
+uv run pytest               # 218 tests (216 + 2 haiku skippés), ~15s
 uv run pytest -v            # avec détail par test
 ```
 
@@ -153,9 +160,9 @@ uv run pytest -v            # avec détail par test
 - `tests/test_import_facts.py` — `importer_faits()` (batching, dates, lot incomplet) + lecture/validation du fichier de snapshot
 - `tests/test_cli_import_facts.py` — garde-fous CLI du snapshot (base non vide, Ollama, modèle divergent, `--complet` + csv/catégorie) et round-trip export → import
 
-## État (septembre 2026) — v0.1.5 publiée
+## État (novembre 2026) — v0.1.6 publiée
 
-**Projet livré.** Dernière version PyPI **v0.1.5 (2026-09-11)** ; publication initiale v0.1.0 le 2026-05-16. `pip install personal-memory-mcp`
+**Projet livré.** Dernière version PyPI **v0.1.6 (2026-11-24)** ; publication initiale v0.1.0 le 2026-05-16. `pip install personal-memory-mcp`
 - GitHub : https://github.com/OnyxynO/personal-memory-mcp/releases/tag/v0.1.0
 - PyPI : https://pypi.org/project/personal-memory-mcp/
 - Token PyPI : `infra/.env` (ignoré git)
@@ -247,7 +254,7 @@ Basées sur les patterns de `badlogic/pi-mono` et `theodo-group/debug-that`, ada
 - Fournir un fichier fixture pour tout test d'importation
 
 ### Tests
-- Lancer `uv run pytest` après chaque changement — les 98 tests doivent passer
+- Lancer `uv run pytest` après chaque changement — les 218 tests doivent passer (2 haiku ignorés sans clé)
 - Ajouter des tests si vous créez une nouvelle méthode publique
 - Test coverage n'est pas un objectif rigide, mais chercher à couvrir les chemins critiques
 
